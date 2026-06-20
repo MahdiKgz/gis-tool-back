@@ -1,6 +1,8 @@
 import express, { Application } from "express";
 import cors from "cors";
 import { router as authRouter } from "./routes/auth.route";
+import { globalErrorHandler } from "./middlewares/errorHandler";
+import { router as uploadRouter } from "./routes/geojson.route";
 
 const app: Application = express();
 
@@ -11,8 +13,12 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/register", authRouter);
 
+app.use("/upload", uploadRouter);
+
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "OK", message: "GIS Backend is running!" });
 });
+
+app.use(globalErrorHandler);
 
 export default app;
