@@ -3,19 +3,21 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
- "scripts": {
-  "build": "tsc",
-  "start": "node dist/server.js",
-  "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node' src/server.ts"
-},
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node' src/server.ts"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "bullmq": "^5.79.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "ioredis": "^5.11.1",
     "multer": "^2.1.1"
   },
   "devDependencies": {
