@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    // File Layout
+    "rootDir": "./src",
+    "outDir": "./dist",
+
+    // Environment Settings
+    "module": "commonjs",
+    "target": "es2022",
+    "types": ["node"],
+
+    // Output Settings
+    "sourceMap": true, // برای دیباگ کردن کدهای بک‌اند به شدت مفیده
+
+    // Interoperability (ضروری برای پروژه‌های نود)
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // Stricter Typechecking Options
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "skipLibCheck": true // سرعت کامپایل رو بالا می‌بره و گیر دادن به تایپ‌های پکیج‌های خارجی رو قطع می‌کنه
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}
