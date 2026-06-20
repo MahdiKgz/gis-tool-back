@@ -4,6 +4,8 @@ import { router as authRouter } from "./routes/auth.route";
 import { globalErrorHandler } from "./middlewares/errorHandler";
 import { router as uploadRouter } from "./routes/geojson.route";
 
+import "./workers/gis.worker";
+
 const app: Application = express();
 
 // Middlewares
