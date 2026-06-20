@@ -13,6 +13,8 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@turf/kinks": "^7.3.5",
+    "@turf/truncate": "^7.3.5",
     "bullmq": "^5.79.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

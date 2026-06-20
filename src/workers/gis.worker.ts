@@ -1,7 +1,9 @@
 import { Worker, Job } from "bullmq";
+import { redisConnection } from "../services/queue.service";
 import path from "path";
 import fs from "fs";
-import { redisConnection } from "../services/queue.service";
+import truncate from "@turf/truncate";
+import kinks from "@turf/kinks";
 
 interface GisJobData {
   fileName: string;
@@ -20,34 +22,59 @@ export const gisWorker = new Worker(
     );
 
     if (!fs.existsSync(filePath)) {
-      throw new Error(`فایل در مسیر مشخص شده یافت نشد: ${filePath}`);
+      throw new Error(`فایل یافت نشد: ${filePath}`);
+    }
+    const rawData = fs.readFileSync(filePath, "utf-8");
+    const geojson = JSON.parse(rawData);
+
+    await job.updateProgress(20);
+
+    console.log(`⏳ [Worker] Job ${job.id}: Checking for geometry kinks...`);
+    const selfIntersections = kinks(geojson);
+    const kinkCount = selfIntersections.features.length;
+
+    await job.updateProgress(50);
+
+    console.log(
+      `⏳ [Worker] Job ${job.id}: Truncating coordinates to 6 decimals...`,
+    );
+    const optimizedGeojson = truncate(geojson, {
+      precision: 6,
+      coordinates: 3,
+    });
+
+    await job.updateProgress(80);
+
+    const outputDir = path.join(__dirname, "../../uploads/cleaned_files");
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
     }
 
-    await job.updateProgress(25);
-    console.log(`⏳ [Worker] Job ${job.id}: File read successfully.`);
+    const outputFilePath = path.join(outputDir, `cleaned-${fileName}`);
+    fs.writeFileSync(outputFilePath, JSON.stringify(optimizedGeojson));
 
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    await job.updateProgress(75);
-    console.log(`⏳ [Worker] Job ${job.id}: Geometry cleaned and simplified.`);
-
-    // قدم ۳: پایان پردازش
+    const newSize = fs.statSync(outputFilePath).size;
     await job.updateProgress(100);
 
     return {
       success: true,
-      processedFile: `cleaned-${fileName}`,
-      savedAt: new Date().toISOString(),
+      kinksFound: kinkCount,
+      originalSizeInBytes: job.data.size,
+      optimizedSizeInBytes: newSize,
+      compressionRatio: ((1 - newSize / job.data.size) * 100).toFixed(2) + "%",
+      downloadPath: `/uploads/cleaned_files/cleaned-${fileName}`,
     };
   },
   {
-    // @ts-expect-error type-checking for connection type
+    // @ts-expect-error type issue
     connection: redisConnection,
     concurrency: 2,
   },
 );
 
 gisWorker.on("completed", (job) => {
-  console.log(`✅ [Worker] Job ${job.id} COMPLETED. Result:`, job.returnvalue);
+  console.log(`✅ [Worker] Job ${job.id} COMPLETED SUCCESSFULLY 🎉`);
+  console.log(`📊 Statistics:`, job.returnvalue);
 });
 
 gisWorker.on("failed", (job, err) => {
