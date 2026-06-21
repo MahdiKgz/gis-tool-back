@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs";
 import truncate from "@turf/truncate";
 import kinks from "@turf/kinks";
+import unkinkPolygon from "@turf/unkink-polygon";
 import { kml } from "@tmcw/togeojson";
 import { DOMParser } from "@xmldom/xmldom";
 import AdmZip from "adm-zip";
@@ -34,14 +35,10 @@ export const gisWorker = new Worker(
     await job.updateProgress(15);
 
     if (ext === ".kml") {
-      console.log(`⏳ [Worker] Job ${job.id}: Converting KML to GeoJSON...`);
       const kmlContent = fs.readFileSync(filePath, "utf-8");
       const xmlDoc = new DOMParser().parseFromString(kmlContent, "text/xml");
       geojson = kml(xmlDoc);
     } else if (ext === ".kmz") {
-      console.log(
-        `⏳ [Worker] Job ${job.id}: Extracting KMZ and converting to GeoJSON...`,
-      );
       const zip = new AdmZip(filePath);
       const zipEntries = zip.getEntries();
       const kmlEntry = zipEntries.find((entry) =>
@@ -62,32 +59,48 @@ export const gisWorker = new Worker(
 
     await job.updateProgress(35);
 
-    console.log(`⏳ [Worker] Job ${job.id}: Checking for geometry kinks...`);
     let kinkCount = 0;
-    const allowedTypes = [
-      "LineString",
-      "MultiLineString",
-      "Polygon",
-      "MultiPolygon",
-    ];
+    let healedFeatures: any[] = [];
 
     if (geojson.type === "FeatureCollection") {
       for (const feature of geojson.features) {
-        if (allowedTypes.includes(feature.geometry?.type)) {
+        if (["Polygon", "MultiPolygon"].includes(feature.geometry?.type)) {
+          const featureKinks = kinks(feature);
+          if (featureKinks.features.length > 0) {
+            kinkCount += featureKinks.features.length;
+            const unkinked = unkinkPolygon(feature);
+            healedFeatures.push(...unkinked.features);
+          } else {
+            healedFeatures.push(feature);
+          }
+        } else if (
+          ["LineString", "MultiLineString"].includes(feature.geometry?.type)
+        ) {
           const featureKinks = kinks(feature);
           kinkCount += featureKinks.features.length;
+          healedFeatures.push(feature);
+        } else {
+          healedFeatures.push(feature);
         }
       }
-    } else if (allowedTypes.includes(geojson.geometry?.type || geojson.type)) {
-      const featureKinks = kinks(geojson);
-      kinkCount = featureKinks.features.length;
+      geojson.features = healedFeatures;
+    } else {
+      if (["Polygon", "MultiPolygon"].includes(geojson.geometry?.type)) {
+        const featureKinks = kinks(geojson);
+        if (featureKinks.features.length > 0) {
+          kinkCount += featureKinks.features.length;
+          geojson = unkinkPolygon(geojson);
+        }
+      } else if (
+        ["LineString", "MultiLineString"].includes(geojson.geometry?.type)
+      ) {
+        const featureKinks = kinks(geojson);
+        kinkCount += featureKinks.features.length;
+      }
     }
 
     await job.updateProgress(60);
 
-    console.log(
-      `⏳ [Worker] Job ${job.id}: Truncating coordinates to 6 decimals...`,
-    );
     const optimizedGeojson = truncate(geojson, {
       precision: 6,
       coordinates: 3,
@@ -112,6 +125,7 @@ export const gisWorker = new Worker(
       detectedFormat: ext,
       convertedTo: "GeoJSON",
       kinksFound: kinkCount,
+      healed: kinkCount > 0,
       originalSizeInBytes: job.data.size,
       optimizedSizeInBytes: newSize,
       compressionRatio: ((1 - newSize / job.data.size) * 100).toFixed(2) + "%",

@@ -16,6 +16,7 @@
     "@tmcw/togeojson": "^7.1.2",
     "@turf/kinks": "^7.3.5",
     "@turf/truncate": "^7.3.5",
+    "@turf/unkink-polygon": "^7.3.5",
     "@xmldom/xmldom": "^0.9.10",
     "adm-zip": "^0.5.17",
     "bullmq": "^5.79.0",
