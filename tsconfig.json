@@ -22,11 +22,6 @@
     "exactOptionalPropertyTypes": true,
     "skipLibCheck": true // سرعت کامپایل رو بالا می‌بره و گیر دادن به تایپ‌های پکیج‌های خارجی رو قطع می‌کنه
   },
-  "include": [
-    "src/**/*"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist"
-  ]
+  "include": ["src/**/*", "src/routes/upload.route.ts"],
+  "exclude": ["node_modules", "dist"]
 }

@@ -2,7 +2,7 @@ import express, { Application } from "express";
 import cors from "cors";
 import { router as authRouter } from "./routes/auth.route";
 import { globalErrorHandler } from "./middlewares/errorHandler";
-import { router as uploadRouter } from "./routes/geojson.route";
+import { router as uploadRouter } from "./routes/upload.route";
 
 import "./workers/gis.worker";
 

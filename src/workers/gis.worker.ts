@@ -30,8 +30,26 @@ export const gisWorker = new Worker(
     await job.updateProgress(20);
 
     console.log(`⏳ [Worker] Job ${job.id}: Checking for geometry kinks...`);
-    const selfIntersections = kinks(geojson);
-    const kinkCount = selfIntersections.features.length;
+
+    let kinkCount = 0;
+    const allowedTypes = [
+      "LineString",
+      "MultiLineString",
+      "Polygon",
+      "MultiPolygon",
+    ];
+
+    if (geojson.type === "FeatureCollection") {
+      for (const feature of geojson.features) {
+        if (allowedTypes.includes(feature.geometry?.type)) {
+          const featureKinks = kinks(feature);
+          kinkCount += featureKinks.features.length;
+        }
+      }
+    } else if (allowedTypes.includes(geojson.geometry?.type || geojson.type)) {
+      const featureKinks = kinks(geojson);
+      kinkCount = featureKinks.features.length;
+    }
 
     await job.updateProgress(50);
 
@@ -66,7 +84,7 @@ export const gisWorker = new Worker(
     };
   },
   {
-    // @ts-expect-error type issue
+    // @ts-expect-error type for connection
     connection: redisConnection,
     concurrency: 2,
   },
