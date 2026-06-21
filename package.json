@@ -20,7 +20,6 @@
     "@turf/kinks": "^7.3.5",
     "@turf/length": "^7.3.5",
     "@turf/nearest-point-on-line": "^7.3.5",
-    "@turf/truncate": "^7.3.5",
     "@turf/unkink-polygon": "^7.3.5",
     "@xmldom/xmldom": "^0.9.10",
     "adm-zip": "^0.5.17",
@@ -36,6 +35,7 @@
     "topojson-server": "^3.0.1"
   },
   "devDependencies": {
+    "@turf/truncate": "^7.3.5",
     "@types/adm-zip": "^0.5.8",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
