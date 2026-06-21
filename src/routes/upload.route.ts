@@ -6,7 +6,7 @@ const router = express.Router();
 
 const geojsonUploadMiddleware = createUploader({
   destination: "./uploads/gis_files",
-  allowedExtensions: [".geojson", ".json"],
+  allowedExtensions: [".geojson", ".json", ".kml", ".kmz", ".shp", ".zip"],
   maxSizeInMB: 5,
 });
 
