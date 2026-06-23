@@ -20,8 +20,12 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
-    "skipLibCheck": true // سرعت کامپایل رو بالا می‌بره و گیر دادن به تایپ‌های پکیج‌های خارجی رو قطع می‌کنه
+    "skipLibCheck": true, // سرعت کامپایل رو بالا می‌بره و گیر دادن به تایپ‌های پکیج‌های خارجی رو قطع می‌کنه
+
+    // اضافه کردن مسیر فایل‌های Declaration کاستوم (برای شناسایی تایپ‌های mapshaper)
+    "typeRoots": ["./node_modules/@types", "./src/types"]
   },
-  "include": ["src/**/*", "src/routes/upload.route.ts"],
+  // مسیرهای تکراری حذف شدند تا کانفیگ تمیزتر بشه
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
 }

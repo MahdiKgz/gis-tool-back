@@ -12,13 +12,20 @@ export const uploadGeoJson = async (
       return;
     }
 
-    console.log(`[API] 📥 فایل جی‌آی‌آس ذخیره شد: ${req.file.filename}`);
+    const rawTolerance = req.body.tolerance;
+    const tolerance =
+      rawTolerance && !isNaN(Number(rawTolerance)) ? Number(rawTolerance) : 25;
+
+    console.log(
+      `[API] 📥 فایل جی‌آی‌آس ذخیره شد: ${req.file.filename} | تلرانس درخواستی: ${tolerance}mm`,
+    );
 
     const job = await gisQueue.add("clean-gis-file", {
       fileName: req.file.filename,
       originalName: req.file.originalname,
       filePath: req.file.path,
       size: req.file.size,
+      tolerance: tolerance,
     });
 
     console.log(`🚀 [Queue] Job added to queue with ID: ${job.id}`);
@@ -30,6 +37,7 @@ export const uploadGeoJson = async (
         jobId: job.id,
         originalName: req.file.originalname,
         sizeInBytes: req.file.size,
+        appliedTolerance: tolerance,
       },
     });
   } catch (err) {
