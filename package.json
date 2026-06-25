@@ -39,6 +39,7 @@
     "mapshaper": "^0.7.32",
     "multer": "^2.1.1",
     "node-cron": "^4.2.1",
+    "rbush": "^4.0.1",
     "shpjs": "^6.2.0",
     "topojson-client": "^3.1.0",
     "topojson-server": "^3.0.1"
@@ -51,6 +52,7 @@
     "@types/multer": "^2.1.0",
     "@types/node": "^25.9.3",
     "@types/node-cron": "^3.0.11",
+    "@types/rbush": "^4.0.0",
     "@types/shpjs": "^3.4.7",
     "@types/topojson-client": "^3.1.5",
     "@types/topojson-server": "^3.0.4",

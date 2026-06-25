@@ -86,6 +86,9 @@ importers:
       node-cron:
         specifier: ^4.2.1
         version: 4.2.1
+      rbush:
+        specifier: ^4.0.1
+        version: 4.0.1
       shpjs:
         specifier: ^6.2.0
         version: 6.2.0(geotiff@3.0.5)
@@ -117,6 +120,9 @@ importers:
       '@types/node-cron':
         specifier: ^3.0.11
         version: 3.0.11
+      '@types/rbush':
+        specifier: ^4.0.0
+        version: 4.0.0
       '@types/shpjs':
         specifier: ^3.4.7
         version: 3.4.7
@@ -2230,8 +2236,7 @@ snapshots:
 
   '@types/range-parser@1.2.7': {}
 
-  '@types/rbush@4.0.0':
-    optional: true
+  '@types/rbush@4.0.0': {}
 
   '@types/send@1.2.1':
     dependencies:
@@ -3164,8 +3169,7 @@ snapshots:
 
   quickselect@2.0.0: {}
 
-  quickselect@3.0.0:
-    optional: true
+  quickselect@3.0.0: {}
 
   range-parser@1.2.1: {}
 
@@ -3183,7 +3187,6 @@ snapshots:
   rbush@4.0.1:
     dependencies:
       quickselect: 3.0.0
-    optional: true
 
   rc@1.2.8:
     dependencies:
