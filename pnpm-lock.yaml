@@ -11,6 +11,9 @@ importers:
       '@tmcw/togeojson':
         specifier: ^7.1.2
         version: 7.1.2
+      '@turf/area':
+        specifier: ^7.3.5
+        version: 7.3.5
       '@turf/bbox':
         specifier: ^7.3.5
         version: 7.3.5
@@ -20,7 +23,13 @@ importers:
       '@turf/boolean-intersects':
         specifier: ^7.3.5
         version: 7.3.5
+      '@turf/clusters':
+        specifier: ^7.3.5
+        version: 7.3.5
       '@turf/distance':
+        specifier: ^7.3.5
+        version: 7.3.5
+      '@turf/flatten':
         specifier: ^7.3.5
         version: 7.3.5
       '@turf/helpers':
@@ -36,6 +45,9 @@ importers:
         specifier: ^7.3.5
         version: 7.3.5
       '@turf/line-slice':
+        specifier: ^7.3.5
+        version: 7.3.5
+      '@turf/meta':
         specifier: ^7.3.5
         version: 7.3.5
       '@turf/nearest-point-on-line':
@@ -333,7 +345,6 @@ packages:
     resolution: {integrity: sha512-5BqxR/pshjey51iliyzTD5Xi3EN0aLmQ2lZ3lvefVV9c82BvrLo2/6OT55iifpWBufs6kdwWbuOKS841DrmK9A==}
     cpu: [x64]
     os: [linux]
-    libc: [glibc]
 
   '@tmcw/togeojson@5.8.1':
     resolution: {integrity: sha512-2YNrbis3l5kS0XrYwiHEZcGwiRp0MJ5CvwGwtMWp2z2tsVlskeec2qgvKHnF0RCwI5GnjrrBOoKsWfndEnd3LA==}
@@ -359,7 +370,7 @@ packages:
     resolution: {integrity: sha512-vxhUy4J8lyeyinH7Azl1pdd43GJhZH/tP2weN8TntQblOY+A0XbT8DJk1/oCPuOOyg/Ja757rG0CgHcWC8OfMA==}
 
   '@turf/area@7.3.5':
-    resolution: {integrity: sha512-sSn80wPT7XfBIDN3vurCPxhk9W4U8ozS/XImSqeLN8qveTICOxzZkhsGDMp0CuncaN+plWut4a2TdNM7mzZB6Q==, tarball: https://mirror2.chabokan.net/npm/@turf%2Farea/-/area-7.3.5.tgz}
+    resolution: {integrity: sha512-sSn80wPT7XfBIDN3vurCPxhk9W4U8ozS/XImSqeLN8qveTICOxzZkhsGDMp0CuncaN+plWut4a2TdNM7mzZB6Q==}
 
   '@turf/bbox-polygon@7.3.5':
     resolution: {integrity: sha512-Cs9Laej8zfSY51kORM9UcbY4Uf/7X3OIZr/LydbrmmARFSpYH/FZsEQjAGi1S1Q0aYbibVqjEUReHN3ZVsV5eA==}
@@ -400,11 +411,17 @@ packages:
   '@turf/clone@6.5.0':
     resolution: {integrity: sha512-mzVtTFj/QycXOn6ig+annKrM6ZlimreKYz6f/GSERytOpgzodbQyOgkfwru100O1KQhhjSudKK4DsQ0oyi9cTw==}
 
+  '@turf/clusters@7.3.5':
+    resolution: {integrity: sha512-ZYQSCxElarAaG4azNieZ0ylX1sietkHIVAZv6H5JfSz/EXbAekQIom/isoynfDl/jVyNonDT7UrDZdCIjKQ2Gg==}
+
   '@turf/distance@6.5.0':
     resolution: {integrity: sha512-xzykSLfoURec5qvQJcfifw/1mJa+5UwByZZ5TZ8iaqjGYN0vomhV9aiSLeYdUGtYRESZ+DYC/OzY+4RclZYgMg==}
 
   '@turf/distance@7.3.5':
     resolution: {integrity: sha512-uQAC63zg/l91KUxzfhqio7Ii3+UXTrPOVJScIdRj6EO6+9XHI4kC+AdyIS4cPAv14sZfJLIBxzMnzcGrss+kEA==}
+
+  '@turf/flatten@7.3.5':
+    resolution: {integrity: sha512-4dDAyoY8wf4UCIJ2lH3JbypmEeqyuRFExHEPu6eJeaOybdpOV9kn3LqB0lsWArizFjJWQNS+0qpv08jD85jSPg==}
 
   '@turf/helpers@6.5.0':
     resolution: {integrity: sha512-VbI1dV5bLFzohYYdgqwikdMVpe7pJ9X3E+dlr425wa2/sMJqYDhTO++ec38/pcPvPE6oD9WEEeU3Xu3gza+VPw==}
@@ -1994,6 +2011,13 @@ snapshots:
     dependencies:
       '@turf/helpers': 6.5.0
 
+  '@turf/clusters@7.3.5':
+    dependencies:
+      '@turf/helpers': 7.3.5
+      '@turf/meta': 7.3.5
+      '@types/geojson': 7946.0.16
+      tslib: 2.8.1
+
   '@turf/distance@6.5.0':
     dependencies:
       '@turf/helpers': 6.5.0
@@ -2003,6 +2027,13 @@ snapshots:
     dependencies:
       '@turf/helpers': 7.3.5
       '@turf/invariant': 7.3.5
+      '@types/geojson': 7946.0.16
+      tslib: 2.8.1
+
+  '@turf/flatten@7.3.5':
+    dependencies:
+      '@turf/helpers': 7.3.5
+      '@turf/meta': 7.3.5
       '@types/geojson': 7946.0.16
       tslib: 2.8.1
 
