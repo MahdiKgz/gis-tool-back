@@ -1,4 +1,4 @@
-import { Worker, Job } from "bullmq";
+import { Worker, Job, Queue } from "bullmq";
 import { redisConnection } from "../services/queue.service";
 import path from "path";
 import fs from "fs";
@@ -15,14 +15,24 @@ import booleanIntersects from "@turf/boolean-intersects";
 import lineSlice from "@turf/line-slice";
 import { point, featureCollection } from "@turf/helpers";
 
+// [PHASE 1] — imports for flatten/collect round-trip
 import flatten from "@turf/flatten";
 import { featureEach, coordEach } from "@turf/meta";
 
+// [PHASE 2] — sliver detection
 import area from "@turf/area";
 
+// [PHASE 3] — gap healing + spatial index
 import bbox from "@turf/bbox";
 import RBush from "rbush";
 
+// [v1.1.0 — OVERLAP] polygon overlap detection & conditional healing
+import intersect from "@turf/intersect";
+import union from "@turf/union";
+
+import rewind from "@turf/rewind";
+
+// --- Parsers ---
 import { kml } from "@tmcw/togeojson";
 import { DOMParser } from "@xmldom/xmldom";
 import AdmZip from "adm-zip";
@@ -34,6 +44,9 @@ interface GisJobData {
   filePath: string;
   size: number;
   tolerance?: number;
+  // [v1.1.0] Ratio of smaller polygon's area that defines "small" overlap.
+  // Below this → merge. At or above → critical error. Default: 0.05 (5%).
+  overlapThresholdRatio?: number;
 }
 
 // createSearchBox removed in Phase 3 — replaced by RBush index queries
@@ -433,6 +446,225 @@ const buildPolyIndex = (features: any[]): RBush<any> => {
   return index;
 };
 
+// ---------------------------------------------------------------------------
+// [v1.1.0 — OVERLAP DETECTION & HEALING]
+//
+// DESIGN DECISION — two separate tolerance concepts:
+//   • topology tolerance (mm snap) — already exists, controls vertex snapping
+//   • overlapThresholdRatio — NEW, controls overlap severity classification
+//     Expressed as a ratio of the SMALLER polygon's area, not an absolute m².
+//     Rationale: a 1m² overlap on a 2m² parcel is catastrophic data loss.
+//                the same 1m² on a 10,000m² parcel is a digitizing rounding error.
+//     Formula:  overlapArea / Math.min(areaA, areaB)
+//     Default:  0.05 → overlaps smaller than 5% of the smaller polygon → merge
+//                    → overlaps at or above 5%            → critical error log
+//
+// ALGORITHM (O(n log n) via existing RBush polygon index):
+//   1. Query RBush for spatially overlapping candidates (bbox pre-filter)
+//   2. Run @turf/intersect on each candidate pair for exact overlap geometry
+//   3. Compute overlapRatio against the smaller polygon's area
+//   4. If ratio < threshold → merge with @turf/union, mark merged pair,
+//      carry winning properties (larger polygon wins), push heal log entry
+//   5. If ratio >= threshold → DO NOT merge, push critical error log entry
+//      with exact overlap bbox and both feature IDs for the report worker
+//
+// PROPERTY MERGE STRATEGY:
+//   The larger polygon's properties win. The smaller polygon's ID is recorded
+//   in __mergedFrom on the surviving feature so the report can trace lineage.
+//   This is configurable in future via a propertyMergeStrategy param.
+//
+// RETURN SHAPE:
+//   {
+//     features:             any[]   — processed polygon array (merged where safe)
+//     overlapsHealed:       number  — pairs merged
+//     overlapsCritical:     number  — pairs flagged as critical, not merged
+//     overlapErrorLog:      OverlapEntry[]  — full detail for report worker
+//   }
+// ---------------------------------------------------------------------------
+
+const DEFAULT_OVERLAP_THRESHOLD_RATIO = 0.05;
+
+interface OverlapEntry {
+  type: "healed" | "critical";
+  featureIndexA: number;
+  featureIndexB: number;
+  featureIdA: string | null;
+  featureIdB: string | null;
+  overlapAreaM2: number;
+  overlapRatio: number; // ratio against the smaller polygon
+  overlapBbox: [number, number, number, number];
+  status: "Merged" | "CriticalError";
+}
+
+const healPolygonOverlaps = (
+  features: any[],
+  overlapThresholdRatio: number,
+): {
+  features: any[];
+  overlapsHealed: number;
+  overlapsCritical: number;
+  overlapErrorLog: OverlapEntry[];
+} => {
+  const overlapErrorLog: OverlapEntry[] = [];
+  let overlapsHealed = 0;
+  let overlapsCritical = 0;
+
+  if (features.length < 2) {
+    return { features, overlapsHealed, overlapsCritical, overlapErrorLog };
+  }
+
+  // Reuse buildPolyIndex — already defined below; forward-reference is safe
+  // because this function is only called at runtime inside the worker handler.
+  const index = buildPolyIndex(features);
+
+  // Track which feature indices have been merged away so we skip them
+  const mergedAway = new Set<number>();
+  // Accumulate result — we rebuild the array after processing all pairs
+  const resultMap = new Map<number, any>();
+  features.forEach((f, i) => resultMap.set(i, f));
+
+  for (let i = 0; i < features.length; i++) {
+    if (mergedAway.has(i)) continue;
+
+    const featureA = resultMap.get(i)!;
+    let areaA: number;
+    try {
+      areaA = area(featureA);
+    } catch {
+      continue;
+    }
+    if (areaA <= 0) continue;
+
+    const [minX, minY, maxX, maxY] = bbox(featureA);
+    const candidates = index.search({ minX, minY, maxX, maxY });
+
+    for (const item of candidates) {
+      const j = item.idx;
+      if (j <= i || mergedAway.has(j)) continue;
+
+      const featureB = resultMap.get(j)!;
+      let areaB: number;
+      try {
+        areaB = area(featureB);
+      } catch {
+        continue;
+      }
+      if (areaB <= 0) continue;
+
+      // Exact overlap geometry
+      let overlapGeom: any;
+      try {
+        overlapGeom = intersect(featureCollection([featureA, featureB]));
+      } catch {
+        continue; // degenerate geometry — skip
+      }
+      if (!overlapGeom) continue; // no actual overlap
+
+      let overlapAreaM2: number;
+      try {
+        overlapAreaM2 = area(overlapGeom);
+      } catch {
+        continue;
+      }
+      if (overlapAreaM2 <= 0) continue;
+      if (overlapAreaM2 <= 1e-10) continue;
+
+      // Ratio against the SMALLER polygon — this is the key design decision
+      const smallerArea = Math.min(areaA, areaB);
+      const overlapRatio = overlapAreaM2 / smallerArea;
+
+      const overlapBbox = bbox(overlapGeom) as [number, number, number, number];
+      const featureIdA = featureA.id ?? featureA.properties?.id ?? null;
+      const featureIdB = featureB.id ?? featureB.properties?.id ?? null;
+
+      if (overlapRatio < overlapThresholdRatio) {
+        // ── SMALL OVERLAP → MERGE ──────────────────────────────────────────
+        // Larger polygon's properties win; smaller polygon is merged away.
+        let merged: any;
+        try {
+          merged = union(featureCollection([featureA, featureB]));
+        } catch {
+          // union failed (e.g. invalid geometry) — log as critical instead
+          overlapErrorLog.push({
+            type: "critical",
+            featureIndexA: i,
+            featureIndexB: j,
+            featureIdA,
+            featureIdB,
+            overlapAreaM2,
+            overlapRatio,
+            overlapBbox,
+            status: "CriticalError",
+          });
+          overlapsCritical++;
+          continue;
+        }
+
+        // Assign winning properties — larger polygon wins
+        const winnerProps =
+          areaA >= areaB
+            ? { ...featureA.properties, __mergedFrom: featureIdB ?? j }
+            : { ...featureB.properties, __mergedFrom: featureIdA ?? i };
+
+        merged.properties = winnerProps;
+        merged.id = areaA >= areaB ? (featureA.id ?? i) : (featureB.id ?? j);
+
+        // Replace featureA in the result map with the merged geometry
+        resultMap.set(i, merged);
+        // Mark featureB as gone
+        mergedAway.add(j);
+        resultMap.delete(j);
+
+        // Update areaA for subsequent iterations (this feature may grow)
+        areaA = area(merged);
+
+        overlapErrorLog.push({
+          type: "healed",
+          featureIndexA: i,
+          featureIndexB: j,
+          featureIdA,
+          featureIdB,
+          overlapAreaM2,
+          overlapRatio,
+          overlapBbox,
+          status: "Merged",
+        });
+        overlapsHealed++;
+      } else {
+        // ── LARGE OVERLAP → CRITICAL ERROR ────────────────────────────────
+        // Do NOT modify geometry. Log with full detail for the report worker.
+        overlapErrorLog.push({
+          type: "critical",
+          featureIndexA: i,
+          featureIndexB: j,
+          featureIdA,
+          featureIdB,
+          overlapAreaM2,
+          overlapRatio,
+          overlapBbox,
+          status: "CriticalError",
+        });
+        overlapsCritical++;
+
+        console.error(
+          `🔴 [SnapGIS] CRITICAL OVERLAP — features ${featureIdA ?? i} ↔ ${featureIdB ?? j} | ` +
+            `ratio: ${(overlapRatio * 100).toFixed(1)}% of smaller polygon (${overlapAreaM2.toFixed(2)} m²)`,
+        );
+      }
+    }
+  }
+
+  // Rebuild ordered feature array, skipping merged-away indices
+  const finalFeatures = Array.from(resultMap.values());
+
+  return {
+    features: finalFeatures,
+    overlapsHealed,
+    overlapsCritical,
+    overlapErrorLog,
+  };
+};
+
 // Count polygon pairs that have a gap within toleranceMeters.
 // Uses RBush to query only nearby neighbours — O(n log n) not O(n²).
 const scanGaps = (features: any[], toleranceMeters: number): number => {
@@ -476,11 +708,20 @@ const scanGaps = (features: any[], toleranceMeters: number): number => {
 export const gisWorker = new Worker(
   "gis-processing-queue",
   async (job: Job<GisJobData>) => {
-    const { fileName, originalName, filePath, size, tolerance } = job.data;
+    const {
+      fileName,
+      originalName,
+      filePath,
+      size,
+      tolerance,
+      overlapThresholdRatio,
+    } = job.data;
 
     const usertolerance = tolerance || 25;
-    const lineToleranceKm = usertolerance / 1_000_000;
+    const lineToleranceKm = usertolerance / 1000000;
     const polyToleranceMeters = usertolerance / 1000;
+    const effectiveOverlapRatio =
+      overlapThresholdRatio ?? DEFAULT_OVERLAP_THRESHOLD_RATIO;
 
     console.log(
       `🤖 [SnapGIS Worker] Processing Job ID: ${job.id} (${originalName}) | Tolerance: ${usertolerance}mm`,
@@ -558,13 +799,36 @@ export const gisWorker = new Worker(
 
     await job.updateProgress(50);
 
-    // [PHASE 2] Pre-scan: count slivers in raw input before any processing
+    // [v1.1.0] Pre-scan: count slivers in raw input before any processing
     const minSliverAreaM2 = computeMinSliverAreaM2(polyToleranceMeters);
     const inputSliverCount = countInputSlivers(polyFeatures, minSliverAreaM2);
 
+    // [v1.1.0 — OVERLAP] Run overlap detection & healing BEFORE kink processing.
+    // Rationale: kink detection on two overlapping polygons can produce false
+    // self-intersection reports. Resolving overlaps first gives kinks a clean input.
+    let overlapsHealed = 0;
+    let overlapsCritical = 0;
+    let overlapErrorLog: OverlapEntry[] = [];
+    let polyFeaturesAfterOverlap = polyFeatures;
+
+    if (polyFeatures.length > 1) {
+      const overlapResult = healPolygonOverlaps(
+        polyFeatures,
+        effectiveOverlapRatio,
+      );
+      polyFeaturesAfterOverlap = overlapResult.features;
+      overlapsHealed = overlapResult.overlapsHealed;
+      overlapsCritical = overlapResult.overlapsCritical;
+      overlapErrorLog = overlapResult.overlapErrorLog;
+
+      console.log(
+        `🔷 [SnapGIS] Overlaps — merged: ${overlapsHealed} | critical: ${overlapsCritical}`,
+      );
+    }
+
     let kinkCount = 0;
     let healedPolysList: any[] = [];
-    for (const feature of polyFeatures) {
+    for (const feature of polyFeaturesAfterOverlap) {
       const featureKinks = kinks(feature);
       if (featureKinks.features.length > 0) {
         kinkCount += featureKinks.features.length;
@@ -580,6 +844,7 @@ export const gisWorker = new Worker(
     let gapsClosed = 0;
 
     if (healedPolysList.length > 0) {
+      healedPolysList = healedPolysList.map((f) => rewind(f));
       const mapshaperOutput = await runMapshaperPipeline(
         processedPolys,
         polyToleranceMeters,
@@ -621,7 +886,11 @@ export const gisWorker = new Worker(
       sliversRemovedCount,
       gapsFound,
       gapsClosed,
+      overlapsHealed,
+      overlapsCritical,
+      overlapErrorLog,
       appliedtolerance: usertolerance,
+      appliedOverlapThresholdRatio: effectiveOverlapRatio,
       originalSizeInBytes: size,
       optimizedSizeInBytes: newSize,
       downloadPath: `/uploads/cleaned_files/${outputFileName}`,
