@@ -36,6 +36,7 @@ import {
 import { processRingOrientation } from "../processing/ring-orientation";
 import { canonicalRingSignature } from "../processing/shared/ring-signature";
 import { processSpikes } from "../processing/spikes";
+import { processZeroAreaPolygons } from "../processing/zero-area-polygons";
 const mapshaper = require("mapshaper");
 
 // ---------------------------------------------------------------------------
@@ -1176,6 +1177,23 @@ export const gisWorker = new Worker(
       );
     }
 
+    // GEO-007 is report-only: a zero-area polygon cannot be reconstructed
+    // safely without domain knowledge, so its owning feature is quarantined.
+    const zeroAreaPolygonResult = processZeroAreaPolygons(geojson);
+    const zeroAreaPolygonValidationReport = zeroAreaPolygonResult.report;
+    for (
+      const featureIndex of zeroAreaPolygonValidationReport.unresolvedFeatureIndexes
+    ) {
+      quarantinedFeatureIndexes.add(featureIndex);
+    }
+
+    if (zeroAreaPolygonValidationReport.zeroAreaPolygonsFound > 0) {
+      console.log(
+        `🟥 [SnapGIS] Zero-area polygons — found: ` +
+          `${zeroAreaPolygonValidationReport.zeroAreaPolygonsFound}`,
+      );
+    }
+
     const quarantinedFeatures = geojson.features.filter(
       (_: any, featureIndex: number) =>
         quarantinedFeatureIndexes.has(featureIndex),
@@ -1417,6 +1435,11 @@ export const gisWorker = new Worker(
       spikesUnresolved: spikeValidationReport.unresolvedSpikes,
       spikeValidationReport,
       appliedSpikeBaseToleranceMeters: polyToleranceMeters,
+      zeroAreaPolygonsFound:
+        zeroAreaPolygonValidationReport.zeroAreaPolygonsFound,
+      zeroAreaPolygonIssuesUnresolved:
+        zeroAreaPolygonValidationReport.unresolvedIssues,
+      zeroAreaPolygonValidationReport,
       appliedTolerance: usertolerance,
       appliedOverlapThresholdRatio: effectiveOverlapRatio,
       appliedNearDuplicateMaxOffsetMeters:
