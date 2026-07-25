@@ -1,5 +1,5 @@
 import express from "express";
-import { uploadGeoJson } from "../controllers/geojson.controoler";
+import { uploadGeoJson } from "../controllers/upload.controller";
 import { createUploader } from "../services/upload.service";
 
 const router = express.Router();
