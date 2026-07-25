@@ -29,6 +29,10 @@ import { DOMParser } from "@xmldom/xmldom";
 import AdmZip from "adm-zip";
 import { processDuplicateVertices } from "../processing/duplicate-vertices";
 import { processInvalidRings } from "../processing/invalid-rings";
+import {
+  buildRingClosureReport,
+  detectOpenRings,
+} from "../processing/ring-closure";
 const mapshaper = require("mapshaper");
 
 // ---------------------------------------------------------------------------
@@ -1115,13 +1119,17 @@ export const gisWorker = new Worker(
       geojson = JSON.parse(fs.readFileSync(filePath, "utf-8"));
     }
 
-    // GEO-002 validates and safely closes rings before any coordinate-level
-    // or polygon topology processing. Features with unresolved corruption are
-    // preserved for output but quarantined from operations that require
-    // structurally valid coordinate arrays.
+    // GEO-002 validates ring integrity while GEO-003 owns closure detection,
+    // repair, and reporting. The GEO-002 processor delegates its safe closing
+    // operation to GEO-003 so both reports describe the same single repair.
+    const ringClosureDetection = detectOpenRings(geojson);
     const invalidRingResult = processInvalidRings(geojson);
     geojson = invalidRingResult.geojson;
     const invalidRingValidationReport = invalidRingResult.report;
+    const ringClosureValidationReport = buildRingClosureReport(
+      ringClosureDetection,
+      invalidRingResult.repairedRingKeys,
+    );
     const quarantinedFeatureIndexes = new Set(
       invalidRingValidationReport.unresolvedFeatureIndexes,
     );
@@ -1132,6 +1140,15 @@ export const gisWorker = new Worker(
           `${invalidRingValidationReport.invalidRingsFound} | repaired: ` +
           `${invalidRingValidationReport.ringsRepaired} | unresolved issues: ` +
           `${invalidRingValidationReport.unresolvedIssues}`,
+      );
+    }
+
+    if (ringClosureValidationReport.openRingsFound > 0) {
+      console.log(
+        `🟡 [SnapGIS] Ring closure — open: ` +
+          `${ringClosureValidationReport.openRingsFound} | closed: ` +
+          `${ringClosureValidationReport.ringsClosed} | unresolved: ` +
+          `${ringClosureValidationReport.unresolvedOpenRings}`,
       );
     }
 
@@ -1344,6 +1361,11 @@ export const gisWorker = new Worker(
       invalidRingIssuesUnresolved:
         invalidRingValidationReport.unresolvedIssues,
       invalidRingValidationReport,
+      openRingsFound: ringClosureValidationReport.openRingsFound,
+      ringsAutoClosed: ringClosureValidationReport.ringsClosed,
+      openRingsUnresolved:
+        ringClosureValidationReport.unresolvedOpenRings,
+      ringClosureValidationReport,
       appliedTolerance: usertolerance,
       appliedOverlapThresholdRatio: effectiveOverlapRatio,
       appliedNearDuplicateMaxOffsetMeters:

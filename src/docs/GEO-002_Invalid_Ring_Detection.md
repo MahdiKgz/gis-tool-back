@@ -21,7 +21,8 @@ Coordinate comparison uses every ordinate, preserving Z or M dimensions.
 ## Repair policy
 
 An unclosed ring is closed automatically only when it contains at least three
-distinct valid vertices and no corrupted positions. Repair appends a copy of
+distinct valid vertices and no corrupted positions. GEO-002 delegates this
+operation to the GEO-003 ring-closure repair module, which appends a copy of
 the first position and does not mutate the input object.
 
 Corrupted and insufficient rings are never guessed or destructively altered.

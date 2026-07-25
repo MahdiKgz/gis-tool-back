@@ -31,6 +31,7 @@
 -   [x] Duplicate Polygon Detection
 -   [x] Duplicate Vertex Detection and Safe Repair
 -   [x] Invalid Ring Detection and Safe Repair
+-   [x] Ring Closure Validation and Safe Auto-Close
 
 ### Infrastructure
 
@@ -62,8 +63,8 @@
 
 ## GEO-003 Ring Closure Validation
 
--   [ ] Detect open rings
--   [ ] Auto close rings
+-   [x] Detect open rings
+-   [x] Auto close rings
 
 ## GEO-004 Ring Orientation Validation
 

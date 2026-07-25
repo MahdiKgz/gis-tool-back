@@ -1,5 +1,14 @@
-import { GeometryLike } from "../shared/geojson";
-import { RingCandidate, RingRole } from "./types";
+import { GeometryLike } from "./geojson";
+
+export type RingRole = "exterior" | "interior";
+
+export interface RingCandidate {
+  geometryType: "Polygon" | "MultiPolygon";
+  geometryCollectionPath: number[];
+  coordinatePath: number[];
+  role: RingRole;
+  ring: unknown;
+}
 
 const roleForIndex = (ringIndex: number): RingRole =>
   ringIndex === 0 ? "exterior" : "interior";

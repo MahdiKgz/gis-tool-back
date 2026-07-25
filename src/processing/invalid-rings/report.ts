@@ -2,7 +2,7 @@ import {
   InvalidRingDetectionResult,
   InvalidRingValidationReport,
 } from "./types";
-import { ringPathKey } from "./ring-path";
+import { ringPathKey } from "../shared/ring-path";
 
 export const buildInvalidRingReport = (
   detection: InvalidRingDetectionResult,
