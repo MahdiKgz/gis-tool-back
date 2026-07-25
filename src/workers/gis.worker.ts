@@ -31,6 +31,7 @@ import {
   processCollapsedPolygons,
 } from "../processing/collapsed-polygons";
 import { processDuplicateVertices } from "../processing/duplicate-vertices";
+import { processGeometryTypes } from "../processing/geometry-types";
 import { processInvalidHoles } from "../processing/invalid-holes";
 import { processInvalidRings } from "../processing/invalid-rings";
 import {
@@ -1071,6 +1072,34 @@ export const gisWorker = new Worker(
       geojson = JSON.parse(fs.readFileSync(filePath, "utf-8"));
     }
 
+    // GEO-010 is the first semantic gate. Invalid feature geometries are
+    // preserved for reporting but quarantined before specialized processors.
+    const geometryTypeResult = processGeometryTypes(geojson);
+    const geometryTypeValidationReport = geometryTypeResult.report;
+    if (!geometryTypeValidationReport.rootValid) {
+      throw new TypeError(
+        `GEO-010 geometry type validation failed: ` +
+          geometryTypeValidationReport.rootError,
+      );
+    }
+    if (
+      geometryTypeValidationReport.issues.some(
+        (issue) => issue.code === "INVALID_FEATURE_OBJECT",
+      )
+    ) {
+      throw new TypeError(
+        "GEO-010 geometry type validation failed: " +
+          "FeatureCollection contains a non-object feature entry",
+      );
+    }
+
+    if (geometryTypeValidationReport.invalidGeometryTypesFound > 0) {
+      console.log(
+        `⬛ [SnapGIS] Geometry types — invalid: ` +
+          `${geometryTypeValidationReport.invalidGeometryTypesFound}`,
+      );
+    }
+
     // GEO-009 keeps an O(p) area baseline rather than cloning the complete
     // input so later repair results can be distinguished from input defects.
     const polygonAreaBaseline = capturePolygonAreaBaseline(geojson);
@@ -1086,9 +1115,10 @@ export const gisWorker = new Worker(
       ringClosureDetection,
       invalidRingResult.repairedRingKeys,
     );
-    const quarantinedFeatureIndexes = new Set(
-      invalidRingValidationReport.unresolvedFeatureIndexes,
-    );
+    const quarantinedFeatureIndexes = new Set([
+      ...geometryTypeValidationReport.unresolvedFeatureIndexes,
+      ...invalidRingValidationReport.unresolvedFeatureIndexes,
+    ]);
 
     if (invalidRingValidationReport.invalidRingsFound > 0) {
       console.log(
@@ -1499,6 +1529,11 @@ export const gisWorker = new Worker(
       collapsedPolygonIssuesUnresolved:
         collapsedPolygonValidationReport.unresolvedIssues,
       collapsedPolygonValidationReport,
+      invalidGeometryTypesFound:
+        geometryTypeValidationReport.invalidGeometryTypesFound,
+      geometryTypeIssuesUnresolved:
+        geometryTypeValidationReport.unresolvedIssues,
+      geometryTypeValidationReport,
       appliedTolerance: usertolerance,
       appliedOverlapThresholdRatio: effectiveOverlapRatio,
       appliedNearDuplicateMaxOffsetMeters:

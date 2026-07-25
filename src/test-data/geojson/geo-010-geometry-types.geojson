@@ -1,0 +1,42 @@
+{
+  "type": "FeatureCollection",
+  "name": "GEO-010 geometry type validation",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "valid-point",
+      "properties": { "expected": "valid control" },
+      "geometry": { "type": "Point", "coordinates": [0, 0] }
+    },
+    {
+      "type": "Feature",
+      "id": "unsupported",
+      "properties": { "expected": "unsupported type reported" },
+      "geometry": { "type": "CircularString", "coordinates": [] }
+    },
+    {
+      "type": "Feature",
+      "id": "missing-type",
+      "properties": { "expected": "missing type reported" },
+      "geometry": { "coordinates": [0, 0] }
+    },
+    {
+      "type": "Feature",
+      "id": "nested-unsupported",
+      "properties": { "expected": "nested path reported" },
+      "geometry": {
+        "type": "GeometryCollection",
+        "geometries": [
+          { "type": "Point", "coordinates": [1, 1] },
+          { "type": "Arc", "coordinates": [] }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "null-geometry",
+      "properties": { "expected": "valid RFC 7946 null geometry" },
+      "geometry": null
+    }
+  ]
+}
