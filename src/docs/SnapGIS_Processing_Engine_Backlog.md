@@ -36,6 +36,7 @@
 -   [x] Invalid Hole Validation and Conservative Repair
 -   [x] Spike Detection and Safe Repair
 -   [x] Zero-Area Polygon Detection
+-   [x] Tiny Polygon Detection
 
 ### Infrastructure
 
@@ -106,7 +107,7 @@
 
 ## GEO-008 Tiny Polygon Detection
 
--   [ ] Detect tiny polygons
+-   [x] Detect tiny polygons
 
 ## GEO-009 Collapsed Polygon Detection
 

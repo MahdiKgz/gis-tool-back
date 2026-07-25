@@ -36,6 +36,7 @@ import {
 import { processRingOrientation } from "../processing/ring-orientation";
 import { canonicalRingSignature } from "../processing/shared/ring-signature";
 import { processSpikes } from "../processing/spikes";
+import { processTinyPolygons } from "../processing/tiny-polygons";
 import { processZeroAreaPolygons } from "../processing/zero-area-polygons";
 const mapshaper = require("mapshaper");
 
@@ -1194,6 +1195,25 @@ export const gisWorker = new Worker(
       );
     }
 
+    // GEO-008 distinguishes small positive-area components from GEO-007's
+    // exact-zero degeneracy and reports them without destructive removal.
+    const tinyPolygonResult = processTinyPolygons(geojson, {
+      tinyPolygonAreaM2: minSliverAreaM2,
+    });
+    const tinyPolygonValidationReport = tinyPolygonResult.report;
+    for (
+      const featureIndex of tinyPolygonValidationReport.unresolvedFeatureIndexes
+    ) {
+      quarantinedFeatureIndexes.add(featureIndex);
+    }
+
+    if (tinyPolygonValidationReport.tinyPolygonsFound > 0) {
+      console.log(
+        `🟨 [SnapGIS] Tiny polygons — found: ` +
+          `${tinyPolygonValidationReport.tinyPolygonsFound}`,
+      );
+    }
+
     const quarantinedFeatures = geojson.features.filter(
       (_: any, featureIndex: number) =>
         quarantinedFeatureIndexes.has(featureIndex),
@@ -1440,6 +1460,11 @@ export const gisWorker = new Worker(
       zeroAreaPolygonIssuesUnresolved:
         zeroAreaPolygonValidationReport.unresolvedIssues,
       zeroAreaPolygonValidationReport,
+      tinyPolygonsFound: tinyPolygonValidationReport.tinyPolygonsFound,
+      tinyPolygonIssuesUnresolved:
+        tinyPolygonValidationReport.unresolvedIssues,
+      tinyPolygonValidationReport,
+      appliedTinyPolygonAreaM2: minSliverAreaM2,
       appliedTolerance: usertolerance,
       appliedOverlapThresholdRatio: effectiveOverlapRatio,
       appliedNearDuplicateMaxOffsetMeters:
