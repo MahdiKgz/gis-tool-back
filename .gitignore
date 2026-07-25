@@ -7,6 +7,7 @@ yarn-error.log*
 # Uploads & generated files
 uploads/
 dist/
+dist-test/
 build/
 cleaned_files/
 

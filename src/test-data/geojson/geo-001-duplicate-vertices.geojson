@@ -1,0 +1,71 @@
+{
+  "type": "FeatureCollection",
+  "name": "GEO-001 duplicate vertex validation",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "polygon-consecutive",
+      "properties": {
+        "expected": "one redundant vertex removed"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [0, 0],
+            [2, 0],
+            [2, 0],
+            [2, 2],
+            [0, 2],
+            [0, 0]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "multiline-mixed",
+      "properties": {
+        "expected": "one repaired and one manual-review issue"
+      },
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [
+          [
+            [10, 10],
+            [10, 10],
+            [11, 11]
+          ],
+          [
+            [20, 20],
+            [21, 21],
+            [20, 20]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "unsafe-collapse",
+      "properties": {
+        "expected": "reported but not repaired"
+      },
+      "geometry": {
+        "type": "GeometryCollection",
+        "geometries": [
+          {
+            "type": "LineString",
+            "coordinates": [
+              [30, 30],
+              [30, 30]
+            ]
+          },
+          {
+            "type": "Point",
+            "coordinates": [30, 30]
+          }
+        ]
+      }
+    }
+  ]
+}

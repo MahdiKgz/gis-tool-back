@@ -27,6 +27,7 @@ import RBush from "rbush";
 import { kml } from "@tmcw/togeojson";
 import { DOMParser } from "@xmldom/xmldom";
 import AdmZip from "adm-zip";
+import { processDuplicateVertices } from "../processing/duplicate-vertices";
 const mapshaper = require("mapshaper");
 
 // ---------------------------------------------------------------------------
@@ -1113,6 +1114,23 @@ export const gisWorker = new Worker(
       geojson = JSON.parse(fs.readFileSync(filePath, "utf-8"));
     }
 
+    // GEO-001 runs before feature-type splitting so every supported
+    // coordinate sequence, including nested GeometryCollections, is
+    // validated consistently. Only structurally safe consecutive duplicates
+    // are removed; unresolved repeats remain available to downstream stages.
+    const duplicateVertexResult = processDuplicateVertices(geojson);
+    geojson = duplicateVertexResult.geojson;
+    const duplicateVertexValidationReport = duplicateVertexResult.report;
+
+    if (duplicateVertexValidationReport.duplicatesFound > 0) {
+      console.log(
+        `🟠 [SnapGIS] Duplicate vertices — found: ` +
+          `${duplicateVertexValidationReport.duplicatesFound} | removed: ` +
+          `${duplicateVertexValidationReport.duplicatesRemoved} | unresolved: ` +
+          `${duplicateVertexValidationReport.unresolvedDuplicates}`,
+      );
+    }
+
     await job.updateProgress(20);
 
     const polyFeatures = geojson.features.filter((f: any) =>
@@ -1284,6 +1302,13 @@ export const gisWorker = new Worker(
       topologicalDuplicates,
       nearDuplicates,
       duplicateErrorLog,
+      duplicateVerticesFound:
+        duplicateVertexValidationReport.duplicatesFound,
+      duplicateVerticesRemoved:
+        duplicateVertexValidationReport.duplicatesRemoved,
+      duplicateVerticesUnresolved:
+        duplicateVertexValidationReport.unresolvedDuplicates,
+      duplicateVertexValidationReport,
       appliedTolerance: usertolerance,
       appliedOverlapThresholdRatio: effectiveOverlapRatio,
       appliedNearDuplicateMaxOffsetMeters:

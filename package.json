@@ -5,6 +5,8 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc",
+    "test": "pnpm run test:compile && node --test --test-isolation=none 'dist-test/**/*.test.js'",
+    "test:compile": "tsc -p tsconfig.test.json",
     "start": "node dist/server.js",
     "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node' src/server.ts"
   },
