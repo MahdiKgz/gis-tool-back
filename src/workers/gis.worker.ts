@@ -31,6 +31,7 @@ import {
   processCollapsedPolygons,
 } from "../processing/collapsed-polygons";
 import { processDuplicateVertices } from "../processing/duplicate-vertices";
+import { processGeometryDimensions } from "../processing/geometry-dimensions";
 import { processGeometryTypes } from "../processing/geometry-types";
 import { processInvalidHoles } from "../processing/invalid-holes";
 import { processInvalidRings } from "../processing/invalid-rings";
@@ -1100,6 +1101,18 @@ export const gisWorker = new Worker(
       );
     }
 
+    // GEO-011 validates complete finite positions and consistent arity before
+    // coordinate-sequence processors interpret geometry contents.
+    const geometryDimensionResult = processGeometryDimensions(geojson);
+    const geometryDimensionValidationReport =
+      geometryDimensionResult.report;
+    if (geometryDimensionValidationReport.unresolvedIssues > 0) {
+      console.log(
+        `🟫 [SnapGIS] Geometry dimensions — invalid: ` +
+          `${geometryDimensionValidationReport.unresolvedIssues}`,
+      );
+    }
+
     // GEO-009 keeps an O(p) area baseline rather than cloning the complete
     // input so later repair results can be distinguished from input defects.
     const polygonAreaBaseline = capturePolygonAreaBaseline(geojson);
@@ -1117,6 +1130,7 @@ export const gisWorker = new Worker(
     );
     const quarantinedFeatureIndexes = new Set([
       ...geometryTypeValidationReport.unresolvedFeatureIndexes,
+      ...geometryDimensionValidationReport.unresolvedFeatureIndexes,
       ...invalidRingValidationReport.unresolvedFeatureIndexes,
     ]);
 
@@ -1534,6 +1548,14 @@ export const gisWorker = new Worker(
       geometryTypeIssuesUnresolved:
         geometryTypeValidationReport.unresolvedIssues,
       geometryTypeValidationReport,
+      invalidGeometryDimensionsFound:
+        geometryDimensionValidationReport.invalidDimensionsFound +
+        geometryDimensionValidationReport.inconsistentDimensionsFound,
+      invalidCoordinateValuesFound:
+        geometryDimensionValidationReport.invalidCoordinateValuesFound,
+      geometryDimensionIssuesUnresolved:
+        geometryDimensionValidationReport.unresolvedIssues,
+      geometryDimensionValidationReport,
       appliedTolerance: usertolerance,
       appliedOverlapThresholdRatio: effectiveOverlapRatio,
       appliedNearDuplicateMaxOffsetMeters:
