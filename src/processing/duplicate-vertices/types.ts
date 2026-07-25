@@ -3,8 +3,10 @@ import {
   GeoJsonFeatureLike,
 } from "../shared/geojson";
 import { Position } from "../shared/coordinates";
-
-export type SequenceKind = "line" | "ring";
+import {
+  CoordinateSequence,
+  SequenceKind,
+} from "../shared/coordinate-sequences";
 
 export type DuplicateVertexKind = "consecutive" | "non-consecutive";
 
@@ -12,15 +14,9 @@ export type {
   FeatureCollectionLike,
   GeoJsonFeatureLike,
   Position,
+  CoordinateSequence,
+  SequenceKind,
 };
-
-export interface CoordinateSequence {
-  geometryType: string;
-  geometryCollectionPath: number[];
-  coordinateRootPath: number[];
-  kind: SequenceKind;
-  coordinates: Position[];
-}
 
 export interface DuplicateVertexFinding {
   code: "DUPLICATE_VERTEX";

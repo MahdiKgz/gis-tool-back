@@ -1,0 +1,48 @@
+{
+  "type": "FeatureCollection",
+  "name": "GEO-006 spike detection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "line-spike",
+      "properties": { "expected": "spike tip removed" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [0, 0],
+          [0.001, 0.001],
+          [0.0000001, 0],
+          [1, 0]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "polygon-spike",
+      "properties": { "expected": "spike tip removed, closure preserved" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [0, 0],
+            [10, 0],
+            [10, 10],
+            [10.001, 11],
+            [9.9999999, 10],
+            [0, 10],
+            [0, 0]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "ordinary-corner",
+      "properties": { "expected": "unchanged" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[0, 0], [1, 1], [2, 0]]
+      }
+    }
+  ]
+}
