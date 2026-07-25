@@ -40,6 +40,7 @@
 -   [x] Collapsed Polygon Detection After Repair
 -   [x] Geometry Type Validation
 -   [x] Geometry Dimension Validation
+-   [x] Multipart Geometry Validation
 
 ### Infrastructure
 
@@ -126,7 +127,7 @@
 
 ## GEO-012 Multipart Geometry Validation
 
--   [ ] Validate MultiPolygon integrity
+-   [x] Validate MultiPolygon integrity
 
 ## GEO-013 Coordinate Precision Validation
 

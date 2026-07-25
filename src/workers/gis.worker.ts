@@ -35,6 +35,7 @@ import { processGeometryDimensions } from "../processing/geometry-dimensions";
 import { processGeometryTypes } from "../processing/geometry-types";
 import { processInvalidHoles } from "../processing/invalid-holes";
 import { processInvalidRings } from "../processing/invalid-rings";
+import { processMultipartIntegrity } from "../processing/multipart-integrity";
 import {
   buildRingClosureReport,
   detectOpenRings,
@@ -1113,6 +1114,18 @@ export const gisWorker = new Worker(
       );
     }
 
+    // GEO-012 validates MultiPolygon component structure and pair topology
+    // with RBush candidate pruning before any multipart enters repair stages.
+    const multipartIntegrityResult = processMultipartIntegrity(geojson);
+    const multipartIntegrityValidationReport =
+      multipartIntegrityResult.report;
+    if (multipartIntegrityValidationReport.unresolvedIssues > 0) {
+      console.log(
+        `🟦 [SnapGIS] Multipart integrity — invalid: ` +
+          `${multipartIntegrityValidationReport.invalidMultiPolygonsFound}`,
+      );
+    }
+
     // GEO-009 keeps an O(p) area baseline rather than cloning the complete
     // input so later repair results can be distinguished from input defects.
     const polygonAreaBaseline = capturePolygonAreaBaseline(geojson);
@@ -1131,6 +1144,7 @@ export const gisWorker = new Worker(
     const quarantinedFeatureIndexes = new Set([
       ...geometryTypeValidationReport.unresolvedFeatureIndexes,
       ...geometryDimensionValidationReport.unresolvedFeatureIndexes,
+      ...multipartIntegrityValidationReport.unresolvedFeatureIndexes,
       ...invalidRingValidationReport.unresolvedFeatureIndexes,
     ]);
 
@@ -1556,6 +1570,11 @@ export const gisWorker = new Worker(
       geometryDimensionIssuesUnresolved:
         geometryDimensionValidationReport.unresolvedIssues,
       geometryDimensionValidationReport,
+      invalidMultiPolygonsFound:
+        multipartIntegrityValidationReport.invalidMultiPolygonsFound,
+      multipartIntegrityIssuesUnresolved:
+        multipartIntegrityValidationReport.unresolvedIssues,
+      multipartIntegrityValidationReport,
       appliedTolerance: usertolerance,
       appliedOverlapThresholdRatio: effectiveOverlapRatio,
       appliedNearDuplicateMaxOffsetMeters:
