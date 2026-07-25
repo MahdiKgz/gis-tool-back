@@ -56,9 +56,6 @@ importers:
       '@turf/nearest-point-on-line':
         specifier: ^7.3.5
         version: 7.3.5
-      '@turf/rewind':
-        specifier: ^7.3.5
-        version: 7.3.5
       '@turf/union':
         specifier: ^7.3.5
         version: 7.3.5
@@ -406,9 +403,6 @@ packages:
   '@turf/boolean-clockwise@6.5.0':
     resolution: {integrity: sha512-45+C7LC5RMbRWrxh3Z0Eihsc8db1VGBO5d9BLTOAwU4jR6SgsunTfRWR16X7JUwIDYlCVEmnjcXJNi/kIU3VIw==}
 
-  '@turf/boolean-clockwise@7.3.5':
-    resolution: {integrity: sha512-VpDIpTKBjH4oPbzx1ns18TWcosi+qCRtgU1HIJHLj4NWyLNr7TX86DvomCvZRPfsFxkYYgkFlqHBG1a29dcyqQ==}
-
   '@turf/boolean-disjoint@7.3.5':
     resolution: {integrity: sha512-Pz1GGUC6iL6xGVqhyo+fYg35kl4j/HONMEoC1voN3DcBOCcVlzq+ljvMpvE+oQiR7Q38xLhIxZneLCqMp5YrQA==}
 
@@ -429,9 +423,6 @@ packages:
 
   '@turf/clone@6.5.0':
     resolution: {integrity: sha512-mzVtTFj/QycXOn6ig+annKrM6ZlimreKYz6f/GSERytOpgzodbQyOgkfwru100O1KQhhjSudKK4DsQ0oyi9cTw==}
-
-  '@turf/clone@7.3.5':
-    resolution: {integrity: sha512-qfIaHj3410QEcTpiCRnTzhq8YrUp2gWrUIPLBAEFykopNxJkq1du1VrRzvuAo36ap2UV7KppkS6wGNypbcxswQ==}
 
   '@turf/clusters@7.3.5':
     resolution: {integrity: sha512-ZYQSCxElarAaG4azNieZ0ylX1sietkHIVAZv6H5JfSz/EXbAekQIom/isoynfDl/jVyNonDT7UrDZdCIjKQ2Gg==}
@@ -501,9 +492,6 @@ packages:
 
   '@turf/projection@6.5.0':
     resolution: {integrity: sha512-/Pgh9mDvQWWu8HRxqpM+tKz8OzgauV+DiOcr3FCjD6ubDnrrmMJlsf6fFJmggw93mtVPrZRL6yyi9aYCQBOIvg==}
-
-  '@turf/rewind@7.3.5':
-    resolution: {integrity: sha512-4AZdDh55JeCoKWLS5AC6MuXqAvoqSpj2WigtowtA3JIJ/1J4SclRrV6BGq/Xemwm5yKtRePHazBVUmG5uU75og==}
 
   '@turf/rhumb-bearing@6.5.0':
     resolution: {integrity: sha512-jMyqiMRK4hzREjQmnLXmkJ+VTNTx1ii8vuqRwJPcTlKbNWfjDz/5JqJlb5NaFDcdMpftWovkW5GevfnuzHnOYA==}
@@ -2003,13 +1991,6 @@ snapshots:
       '@turf/helpers': 6.5.0
       '@turf/invariant': 6.5.0
 
-  '@turf/boolean-clockwise@7.3.5':
-    dependencies:
-      '@turf/helpers': 7.3.5
-      '@turf/invariant': 7.3.5
-      '@types/geojson': 7946.0.16
-      tslib: 2.8.1
-
   '@turf/boolean-disjoint@7.3.5':
     dependencies:
       '@turf/boolean-point-in-polygon': 7.3.5
@@ -2057,12 +2038,6 @@ snapshots:
   '@turf/clone@6.5.0':
     dependencies:
       '@turf/helpers': 6.5.0
-
-  '@turf/clone@7.3.5':
-    dependencies:
-      '@turf/helpers': 7.3.5
-      '@types/geojson': 7946.0.16
-      tslib: 2.8.1
 
   '@turf/clusters@7.3.5':
     dependencies:
@@ -2211,16 +2186,6 @@ snapshots:
       '@turf/clone': 6.5.0
       '@turf/helpers': 6.5.0
       '@turf/meta': 6.5.0
-
-  '@turf/rewind@7.3.5':
-    dependencies:
-      '@turf/boolean-clockwise': 7.3.5
-      '@turf/clone': 7.3.5
-      '@turf/helpers': 7.3.5
-      '@turf/invariant': 7.3.5
-      '@turf/meta': 7.3.5
-      '@types/geojson': 7946.0.16
-      tslib: 2.8.1
 
   '@turf/rhumb-bearing@6.5.0':
     dependencies:

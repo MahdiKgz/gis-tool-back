@@ -32,6 +32,7 @@
 -   [x] Duplicate Vertex Detection and Safe Repair
 -   [x] Invalid Ring Detection and Safe Repair
 -   [x] Ring Closure Validation and Safe Auto-Close
+-   [x] Ring Orientation Validation and Normalization
 
 ### Infrastructure
 
@@ -68,9 +69,9 @@
 
 ## GEO-004 Ring Orientation Validation
 
--   [ ] Validate exterior ring orientation
--   [ ] Validate interior ring orientation
--   [ ] Normalize orientation
+-   [x] Validate exterior ring orientation
+-   [x] Validate interior ring orientation
+-   [x] Normalize orientation
 
 ## GEO-005 Invalid Hole Validation
 
