@@ -1,8 +1,8 @@
 import {
   positionKey,
   positionsEqual,
-  visitCoordinateSequences,
-} from "./coordinate-sequences";
+} from "../shared/coordinates";
+import { visitCoordinateSequences } from "./coordinate-sequences";
 import {
   DuplicateVertexFinding,
   FeatureCollectionLike,

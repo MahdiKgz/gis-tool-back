@@ -1,18 +1,12 @@
-import { CoordinateSequence, Position } from "./types";
-
-type GeometryLike = {
-  type?: string;
-  coordinates?: unknown;
-  geometries?: GeometryLike[];
-};
-
-const isPosition = (value: unknown): value is Position =>
-  Array.isArray(value) &&
-  value.length >= 2 &&
-  value.every((ordinate) => typeof ordinate === "number");
+import {
+  isFinitePosition,
+  Position,
+} from "../shared/coordinates";
+import { GeometryLike } from "../shared/geojson";
+import { CoordinateSequence } from "./types";
 
 const isSequence = (value: unknown): value is Position[] =>
-  Array.isArray(value) && value.every(isPosition);
+  Array.isArray(value) && value.every(isFinitePosition);
 
 export const visitCoordinateSequences = (
   geometry: GeometryLike | null | undefined,
@@ -89,19 +83,3 @@ export const visitCoordinateSequences = (
     });
   }
 };
-
-export const positionsEqual = (
-  first: Position,
-  second: Position,
-): boolean =>
-  first.length === second.length &&
-  first.every(
-    (ordinate, index) =>
-      Object.is(ordinate, second[index]) ||
-      (ordinate === 0 && second[index] === 0),
-  );
-
-export const positionKey = (position: Position): string =>
-  JSON.stringify(
-    position.map((ordinate) => (Object.is(ordinate, -0) ? 0 : ordinate)),
-  );

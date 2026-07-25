@@ -5,7 +5,7 @@
     "sourceMap": false
   },
   "include": [
-    "src/processing/duplicate-vertices/**/*.ts",
+    "src/processing/**/*.ts",
     "src/services/queue.service.ts",
     "src/types/mapshaper.d.ts",
     "src/workers/gis.worker.ts"

@@ -1,21 +1,18 @@
-export type Position = number[];
+import {
+  FeatureCollectionLike,
+  GeoJsonFeatureLike,
+} from "../shared/geojson";
+import { Position } from "../shared/coordinates";
 
 export type SequenceKind = "line" | "ring";
 
 export type DuplicateVertexKind = "consecutive" | "non-consecutive";
 
-export interface GeoJsonFeatureLike {
-  id?: string | number;
-  properties?: Record<string, unknown> | null;
-  geometry?: any;
-  [key: string]: unknown;
-}
-
-export interface FeatureCollectionLike {
-  type?: string;
-  features?: GeoJsonFeatureLike[];
-  [key: string]: unknown;
-}
+export type {
+  FeatureCollectionLike,
+  GeoJsonFeatureLike,
+  Position,
+};
 
 export interface CoordinateSequence {
   geometryType: string;

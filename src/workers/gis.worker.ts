@@ -28,6 +28,7 @@ import { kml } from "@tmcw/togeojson";
 import { DOMParser } from "@xmldom/xmldom";
 import AdmZip from "adm-zip";
 import { processDuplicateVertices } from "../processing/duplicate-vertices";
+import { processInvalidRings } from "../processing/invalid-rings";
 const mapshaper = require("mapshaper");
 
 // ---------------------------------------------------------------------------
@@ -1114,10 +1115,28 @@ export const gisWorker = new Worker(
       geojson = JSON.parse(fs.readFileSync(filePath, "utf-8"));
     }
 
-    // GEO-001 runs before feature-type splitting so every supported
-    // coordinate sequence, including nested GeometryCollections, is
-    // validated consistently. Only structurally safe consecutive duplicates
-    // are removed; unresolved repeats remain available to downstream stages.
+    // GEO-002 validates and safely closes rings before any coordinate-level
+    // or polygon topology processing. Features with unresolved corruption are
+    // preserved for output but quarantined from operations that require
+    // structurally valid coordinate arrays.
+    const invalidRingResult = processInvalidRings(geojson);
+    geojson = invalidRingResult.geojson;
+    const invalidRingValidationReport = invalidRingResult.report;
+    const quarantinedFeatureIndexes = new Set(
+      invalidRingValidationReport.unresolvedFeatureIndexes,
+    );
+
+    if (invalidRingValidationReport.invalidRingsFound > 0) {
+      console.log(
+        `🔴 [SnapGIS] Invalid rings — found: ` +
+          `${invalidRingValidationReport.invalidRingsFound} | repaired: ` +
+          `${invalidRingValidationReport.ringsRepaired} | unresolved issues: ` +
+          `${invalidRingValidationReport.unresolvedIssues}`,
+      );
+    }
+
+    // GEO-001 follows ring repair so consecutive duplicates in a newly
+    // closed ring can be removed without violating ring structure.
     const duplicateVertexResult = processDuplicateVertices(geojson);
     geojson = duplicateVertexResult.geojson;
     const duplicateVertexValidationReport = duplicateVertexResult.report;
@@ -1131,16 +1150,26 @@ export const gisWorker = new Worker(
       );
     }
 
+    const quarantinedFeatures = geojson.features.filter(
+      (_: any, featureIndex: number) =>
+        quarantinedFeatureIndexes.has(featureIndex),
+    );
+
     await job.updateProgress(20);
 
-    const polyFeatures = geojson.features.filter((f: any) =>
-      ["Polygon", "MultiPolygon"].includes(f.geometry?.type),
+    const polyFeatures = geojson.features.filter(
+      (f: any, featureIndex: number) =>
+        !quarantinedFeatureIndexes.has(featureIndex) &&
+        ["Polygon", "MultiPolygon"].includes(f.geometry?.type),
     );
-    const lineFeatures = geojson.features.filter((f: any) =>
-      ["LineString", "MultiLineString"].includes(f.geometry?.type),
+    const lineFeatures = geojson.features.filter(
+      (f: any, featureIndex: number) =>
+        !quarantinedFeatureIndexes.has(featureIndex) &&
+        ["LineString", "MultiLineString"].includes(f.geometry?.type),
     );
     const otherFeatures = geojson.features.filter(
-      (f: any) =>
+      (f: any, featureIndex: number) =>
+        !quarantinedFeatureIndexes.has(featureIndex) &&
         !["Polygon", "MultiPolygon", "LineString", "MultiLineString"].includes(
           f.geometry?.type,
         ),
@@ -1275,6 +1304,7 @@ export const gisWorker = new Worker(
       precision: 9,
       coordinates: 3,
     });
+    optimizedGeojson.features.push(...quarantinedFeatures);
 
     const outputDir = path.join(__dirname, "../../uploads/cleaned_files");
     if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
@@ -1309,6 +1339,11 @@ export const gisWorker = new Worker(
       duplicateVerticesUnresolved:
         duplicateVertexValidationReport.unresolvedDuplicates,
       duplicateVertexValidationReport,
+      invalidRingsFound: invalidRingValidationReport.invalidRingsFound,
+      invalidRingsRepaired: invalidRingValidationReport.ringsRepaired,
+      invalidRingIssuesUnresolved:
+        invalidRingValidationReport.unresolvedIssues,
+      invalidRingValidationReport,
       appliedTolerance: usertolerance,
       appliedOverlapThresholdRatio: effectiveOverlapRatio,
       appliedNearDuplicateMaxOffsetMeters:
