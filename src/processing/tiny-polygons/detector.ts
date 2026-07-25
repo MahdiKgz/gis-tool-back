@@ -1,6 +1,5 @@
-import area from "@turf/area";
-import { polygon } from "@turf/helpers";
 import { getFeatureId } from "../shared/feature-id";
+import { measurePolygonAreaM2 } from "../shared/polygon-area";
 import { visitPolygonComponents } from "../shared/polygon-components";
 import {
   FeatureCollectionLike,
@@ -33,14 +32,9 @@ export const detectTinyPolygons = (
   geojson.features.forEach((feature, featureIndex) => {
     visitPolygonComponents(feature.geometry, (component) => {
       polygonsScanned++;
-      let areaM2: number;
-      try {
-        areaM2 = area(polygon(component.coordinates as any));
-      } catch {
-        return;
-      }
+      const areaM2 = measurePolygonAreaM2(component.coordinates);
+      if (areaM2 === null) return;
       if (
-        !Number.isFinite(areaM2) ||
         areaM2 <= 0 ||
         areaM2 >= options.tinyPolygonAreaM2
       ) {

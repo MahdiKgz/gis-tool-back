@@ -37,6 +37,7 @@
 -   [x] Spike Detection and Safe Repair
 -   [x] Zero-Area Polygon Detection
 -   [x] Tiny Polygon Detection
+-   [x] Collapsed Polygon Detection After Repair
 
 ### Infrastructure
 
@@ -111,7 +112,7 @@
 
 ## GEO-009 Collapsed Polygon Detection
 
--   [ ] Detect collapsed polygons after repair
+-   [x] Detect collapsed polygons after repair
 
 ## GEO-010 Geometry Type Validation
 

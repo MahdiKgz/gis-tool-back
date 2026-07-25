@@ -26,6 +26,10 @@ import RBush from "rbush";
 import { kml } from "@tmcw/togeojson";
 import { DOMParser } from "@xmldom/xmldom";
 import AdmZip from "adm-zip";
+import {
+  capturePolygonAreaBaseline,
+  processCollapsedPolygons,
+} from "../processing/collapsed-polygons";
 import { processDuplicateVertices } from "../processing/duplicate-vertices";
 import { processInvalidHoles } from "../processing/invalid-holes";
 import { processInvalidRings } from "../processing/invalid-rings";
@@ -1067,6 +1071,10 @@ export const gisWorker = new Worker(
       geojson = JSON.parse(fs.readFileSync(filePath, "utf-8"));
     }
 
+    // GEO-009 keeps an O(p) area baseline rather than cloning the complete
+    // input so later repair results can be distinguished from input defects.
+    const polygonAreaBaseline = capturePolygonAreaBaseline(geojson);
+
     // GEO-002 validates ring integrity while GEO-003 owns closure detection,
     // repair, and reporting. The GEO-002 processor delegates its safe closing
     // operation to GEO-003 so both reports describe the same single repair.
@@ -1175,6 +1183,27 @@ export const gisWorker = new Worker(
           `${spikeValidationReport.spikesFound} | removed: ` +
           `${spikeValidationReport.spikesRemoved} | unresolved: ` +
           `${spikeValidationReport.unresolvedSpikes}`,
+      );
+    }
+
+    // GEO-009 compares the positive-area input baseline to the repaired
+    // geometry. Collapses are never guessed back into existence.
+    const collapsedPolygonResult = processCollapsedPolygons(
+      polygonAreaBaseline,
+      geojson,
+    );
+    const collapsedPolygonValidationReport =
+      collapsedPolygonResult.report;
+    for (
+      const featureIndex of collapsedPolygonValidationReport.unresolvedFeatureIndexes
+    ) {
+      quarantinedFeatureIndexes.add(featureIndex);
+    }
+
+    if (collapsedPolygonValidationReport.collapsedPolygonsFound > 0) {
+      console.log(
+        `🟪 [SnapGIS] Collapsed polygons — found: ` +
+          `${collapsedPolygonValidationReport.collapsedPolygonsFound}`,
       );
     }
 
@@ -1465,6 +1494,11 @@ export const gisWorker = new Worker(
         tinyPolygonValidationReport.unresolvedIssues,
       tinyPolygonValidationReport,
       appliedTinyPolygonAreaM2: minSliverAreaM2,
+      collapsedPolygonsFound:
+        collapsedPolygonValidationReport.collapsedPolygonsFound,
+      collapsedPolygonIssuesUnresolved:
+        collapsedPolygonValidationReport.unresolvedIssues,
+      collapsedPolygonValidationReport,
       appliedTolerance: usertolerance,
       appliedOverlapThresholdRatio: effectiveOverlapRatio,
       appliedNearDuplicateMaxOffsetMeters:

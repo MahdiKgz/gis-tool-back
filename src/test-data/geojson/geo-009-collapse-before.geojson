@@ -1,0 +1,24 @@
+{
+  "type": "FeatureCollection",
+  "name": "GEO-009 before repair",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "collapsed",
+      "properties": { "expected": "positive before repair" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[0, 0], [2, 0], [2, 2], [0, 0]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "stable",
+      "properties": { "expected": "remains positive" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[10, 0], [12, 0], [12, 2], [10, 0]]]
+      }
+    }
+  ]
+}
