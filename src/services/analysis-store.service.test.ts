@@ -21,6 +21,10 @@ const emptyReport: DryRunReport = {
     autoRepairableIssues: 0,
     manualReviewIssues: 0,
   },
+  affectedFeatureCollection: {
+    type: "FeatureCollection",
+    features: [],
+  },
   appliedOptions: {
     toleranceMillimeters: 25,
     tinyAreaThresholdM2: 0.0625,

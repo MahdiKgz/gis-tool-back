@@ -34,6 +34,29 @@ Successful uploads return `201 Created`:
         "autoRepairableIssues": 1,
         "manualReviewIssues": 2
       },
+      "affectedFeatureCollection": {
+        "type": "FeatureCollection",
+        "features": [
+          {
+            "type": "Feature",
+            "id": "parcel-7",
+            "properties": {},
+            "geometry": {
+              "type": "Polygon",
+              "coordinates": [
+                [
+                  [51.4, 35.7],
+                  [51.5, 35.7],
+                  [51.5, 35.8],
+                  [51.4, 35.8],
+                  [51.4, 35.7]
+                ]
+              ]
+            },
+            "snapgisFeatureIndex": 1
+          }
+        ]
+      },
       "issues": []
     },
     "heal": {
@@ -49,6 +72,11 @@ feature index and ID, geometry type, geometry-collection path, and applicable
 coordinate or polygon paths. `disposition` indicates whether the healing
 pipeline has a conservative automatic repair or whether manual review is
 required.
+
+`report.affectedFeatureCollection` is directly renderable GeoJSON. It contains
+each affected feature once, with its complete original geometry and coordinate
+arrays. The `snapgisFeatureIndex` foreign member links the rendered feature
+back to every matching item in `report.issues`.
 
 The dry run is read-only. It does not modify the uploaded file, write a
 cleaned file, or add a BullMQ job.

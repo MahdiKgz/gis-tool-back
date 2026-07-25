@@ -75,6 +75,19 @@ test("reports issue locations and auto-repair availability without repairing", (
   assert.equal(openRing.disposition, "AutoRepairAvailable");
   assert.ok(duplicate);
   assert.deepEqual(duplicate.location.coordinatePath, [0, 2]);
+  assert.deepEqual(report.affectedFeatureCollection, {
+    type: "FeatureCollection",
+    features: [
+      {
+        ...input.features[0],
+        snapgisFeatureIndex: 0,
+      },
+    ],
+  });
+  assert.notEqual(
+    report.affectedFeatureCollection.features[0]?.geometry,
+    input.features[0]?.geometry,
+  );
   assert.equal(report.checks.ringClosure?.valid, false);
   assert.deepEqual(input, before);
 });
@@ -103,5 +116,6 @@ test("stops safely after the root GeoJSON structure check fails", () => {
 
   assert.equal(report.valid, false);
   assert.equal(report.summary.checksRun, 1);
+  assert.deepEqual(report.affectedFeatureCollection.features, []);
   assert.equal(report.checks.geometryTypes?.rootValid, false);
 });

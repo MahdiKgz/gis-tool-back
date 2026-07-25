@@ -7,7 +7,10 @@ import { processInvalidRings } from "../processing/invalid-rings";
 import { processMultipartIntegrity } from "../processing/multipart-integrity";
 import { processRingClosure } from "../processing/ring-closure";
 import { processRingOrientation } from "../processing/ring-orientation";
-import { FeatureCollectionLike } from "../processing/shared/geojson";
+import {
+  FeatureCollectionLike,
+  GeoJsonFeatureLike,
+} from "../processing/shared/geojson";
 import { processSpikes } from "../processing/spikes";
 import { processTinyPolygons } from "../processing/tiny-polygons";
 import { processZeroAreaPolygons } from "../processing/zero-area-polygons";
@@ -52,6 +55,15 @@ export interface DryRunReport {
     affectedFeatures: number;
     autoRepairableIssues: number;
     manualReviewIssues: number;
+  };
+  affectedFeatureCollection: {
+    type: "FeatureCollection";
+    features: Array<
+      GeoJsonFeatureLike & {
+        type: "Feature";
+        snapgisFeatureIndex: number;
+      }
+    >;
   };
   appliedOptions: {
     toleranceMillimeters: number;
@@ -243,6 +255,28 @@ const buildReport = (
   const autoRepairableIssues = issues.filter(
     (issue) => issue.disposition === "AutoRepairAvailable",
   ).length;
+  const affectedFeatureCollection = {
+    type: "FeatureCollection" as const,
+    features: [...affectedFeatures]
+      .sort((first, second) => first - second)
+      .flatMap((featureIndex) => {
+        const feature = geojson.features?.[featureIndex];
+        if (
+          feature === null ||
+          typeof feature !== "object" ||
+          Array.isArray(feature)
+        ) {
+          return [];
+        }
+        return [
+          {
+            ...structuredClone(feature),
+            type: "Feature" as const,
+            snapgisFeatureIndex: featureIndex,
+          },
+        ];
+      }),
+  };
 
   return {
     mode: "dry-run",
@@ -257,6 +291,7 @@ const buildReport = (
       autoRepairableIssues,
       manualReviewIssues: issues.length - autoRepairableIssues,
     },
+    affectedFeatureCollection,
     appliedOptions,
     issues,
     checks,

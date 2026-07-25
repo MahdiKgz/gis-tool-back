@@ -40,6 +40,13 @@ test("upload controller performs a dry run and does not enqueue healing", async 
       report: {
         mode: string;
         summary: { issuesFound: number };
+        affectedFeatureCollection: {
+          type: string;
+          features: Array<{
+            snapgisFeatureIndex: number;
+            geometry?: { coordinates?: unknown };
+          }>;
+        };
       };
       heal: { method: string; path: string };
     };
@@ -68,6 +75,14 @@ test("upload controller performs a dry run and does not enqueue healing", async 
   assert.equal(body.data.status, "dry-run-complete");
   assert.equal(body.data.report.mode, "dry-run");
   assert.ok(body.data.report.summary.issuesFound > 0);
+  assert.equal(body.data.report.affectedFeatureCollection.type, "FeatureCollection");
+  assert.ok(
+    body.data.report.affectedFeatureCollection.features.some(
+      (feature) =>
+        feature.snapgisFeatureIndex === 0 &&
+        Array.isArray(feature.geometry?.coordinates),
+    ),
+  );
   assert.deepEqual(body.data.heal, {
     method: "POST",
     path: `/heal/${body.data.jobId}`,
