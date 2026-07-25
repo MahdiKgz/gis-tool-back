@@ -27,12 +27,14 @@ import { kml } from "@tmcw/togeojson";
 import { DOMParser } from "@xmldom/xmldom";
 import AdmZip from "adm-zip";
 import { processDuplicateVertices } from "../processing/duplicate-vertices";
+import { processInvalidHoles } from "../processing/invalid-holes";
 import { processInvalidRings } from "../processing/invalid-rings";
 import {
   buildRingClosureReport,
   detectOpenRings,
 } from "../processing/ring-closure";
 import { processRingOrientation } from "../processing/ring-orientation";
+import { canonicalRingSignature } from "../processing/shared/ring-signature";
 const mapshaper = require("mapshaper");
 
 // ---------------------------------------------------------------------------
@@ -146,17 +148,9 @@ const buildIndex = (features: any[]): RBush<any> => {
 // Level 2 — Topological Duplicate
 //   Same shape, but vertex order may be rotated and/or reversed (different
 //   starting vertex, or opposite winding direction). A polygon [1,2,3,4] and
-//   [3,4,1,2] are the same ring. Detected via a two-tier check:
-//     (a) cheap pre-filter: sort each ring's vertices into a canonical
-//         "multiset" key — rotation/direction-invariant AND O(n log n).
-//         If the multisets differ, the rings cannot possibly match, skip
-//         the expensive check entirely.
-//     (b) only for multiset matches: compute a true rotation-normalized
-//         signature (try every rotation, both directions, keep the
-//         lexicographically smallest form) to confirm actual ring identity,
-//         not just "same points, maybe different connectivity". This step
-//         is O(n²) per ring but only runs on pairs that already passed the
-//         cheap filter, which in practice is rare.
+//   [3,4,1,2] are the same ring. Detected with a canonical signature that
+//   uses Booth's algorithm to find the least cyclic rotation in both winding
+//   directions in O(n), avoiding quadratic rotation scans.
 //   Reported only — never auto-removed.
 //
 // Level 3 — Near Duplicate
@@ -180,9 +174,8 @@ const buildIndex = (features: any[]): RBush<any> => {
 //   A single RBush index is built once (unlike the overlap engine, this
 //   stage never mutates geometry mid-scan, so there is no staleness risk
 //   requiring a multi-pass rebuild — removing an exact duplicate doesn't
-//   change any other feature's bbox). Per-feature area and vertex-multiset
-//   keys are cached on first computation to avoid recomputing them across
-//   repeated candidate comparisons.
+//   change any other feature's bbox). Per-feature area and canonical ring
+//   signatures are cached on first computation.
 // ---------------------------------------------------------------------------
 interface DuplicateEntry {
   type: "exact" | "topological" | "near";
@@ -196,49 +189,6 @@ interface DuplicateEntry {
   status: "Duplicate";
   recommendedAction: "Delete" | "ManualReview";
 }
-
-// Strip the closing repeated vertex from a ring (GeoJSON rings repeat their
-// first point as their last). Comparisons operate on the open form.
-const stripClosingRing = (ring: number[][]): number[][] => {
-  const first = ring[0];
-  const last = ring[ring.length - 1];
-  return first[0] === last[0] && first[1] === last[1]
-    ? ring.slice(0, -1)
-    : ring.slice();
-};
-
-// Cheap, rotation/direction-invariant fast-filter: sort all vertices of a
-// ring into a canonical order. Two rings with the same point SET (regardless
-// of connectivity/order) produce the same key. Necessary but not sufficient
-// for topological equality — used purely to reject non-candidates fast
-// before paying for the expensive rotation-normalized check below.
-const vertexMultisetKey = (ring: number[][]): string =>
-  stripClosingRing(ring)
-    .map((p) => `${p[0].toFixed(9)},${p[1].toFixed(9)}`)
-    .sort()
-    .join("|");
-
-// Expensive, exact rotation/direction-normalized signature. Tries every
-// rotation of the ring in both winding directions and keeps the
-// lexicographically smallest stringified form as the canonical signature.
-// O(n²) per ring — intentionally gated behind vertexMultisetKey so it only
-// runs on pairs that already look like plausible topological duplicates.
-const ringSignature = (ring: number[][]): string => {
-  const open = stripClosingRing(ring);
-  const rotations = (arr: number[][]): number[][][] =>
-    arr.map((_, i) => [...arr.slice(i), ...arr.slice(0, i)]);
-
-  const candidates = [...rotations(open), ...rotations([...open].reverse())];
-
-  let bestKey = "";
-  for (const cand of candidates) {
-    const key = cand
-      .map((p) => `${p[0].toFixed(9)},${p[1].toFixed(9)}`)
-      .join("|");
-    if (bestKey === "" || key < bestKey) bestKey = key;
-  }
-  return bestKey;
-};
 
 const ringsExactlyEqual = (ringA: number[][], ringB: number[][]): boolean => {
   if (ringA.length !== ringB.length) return false;
@@ -264,18 +214,6 @@ const geometryExactlyEqual = (
   if (ringsA.length !== ringsB.length) return false;
   for (let i = 0; i < ringsA.length; i++) {
     if (!ringsExactlyEqual(ringsA[i], ringsB[i])) return false;
-  }
-  return true;
-};
-
-const geometryTopologicallyEqual = (
-  ringsA: number[][][],
-  ringsB: number[][][],
-): boolean => {
-  if (ringsA.length !== ringsB.length) return false;
-  for (let i = 0; i < ringsA.length; i++) {
-    if (ringsA[i].length !== ringsB[i].length) return false;
-    if (ringSignature(ringsA[i]) !== ringSignature(ringsB[i])) return false;
   }
   return true;
 };
@@ -337,7 +275,7 @@ const detectDuplicatePolygons = (
   // Per-feature caches — computed once, reused across every candidate pair
   // that touches this feature, instead of recomputing on every comparison.
   const areaCache = new Map<number, number>();
-  const multisetCache = new Map<number, string[]>();
+  const signatureCache = new Map<number, string[]>();
 
   const getArea = (idx: number, f: any): number => {
     if (!areaCache.has(idx)) {
@@ -350,11 +288,14 @@ const detectDuplicatePolygons = (
     return areaCache.get(idx)!;
   };
 
-  const getMultisetKeys = (idx: number, f: any): string[] => {
-    if (!multisetCache.has(idx)) {
-      multisetCache.set(idx, getRings(f).map(vertexMultisetKey));
+  const getRingSignatures = (idx: number, f: any): string[] => {
+    if (!signatureCache.has(idx)) {
+      signatureCache.set(
+        idx,
+        getRings(f).map((ring) => canonicalRingSignature(ring, 9)),
+      );
     }
-    return multisetCache.get(idx)!;
+    return signatureCache.get(idx)!;
   };
 
   for (let i = 0; i < features.length; i++) {
@@ -418,13 +359,16 @@ const detectDuplicatePolygons = (
             continue;
           }
 
-          const multisetA = getMultisetKeys(i, featureA);
-          const multisetB = getMultisetKeys(j, featureB);
-          const multisetMatch =
-            multisetA.length === multisetB.length &&
-            multisetA.every((k, idx2) => k === multisetB[idx2]);
+          const signaturesA = getRingSignatures(i, featureA);
+          const signaturesB = getRingSignatures(j, featureB);
+          const signaturesMatch =
+            signaturesA.length === signaturesB.length &&
+            signaturesA.every(
+              (signature, ringIndex) =>
+                signature === signaturesB[ringIndex],
+            );
 
-          if (multisetMatch && geometryTopologicallyEqual(ringsA, ringsB)) {
+          if (signaturesMatch) {
             // Level 2 — Topological Duplicate. Report only, never remove.
             topologicalDuplicates++;
             duplicateErrorLog.push({
@@ -1078,6 +1022,7 @@ export const gisWorker = new Worker(
     const usertolerance = tolerance || 25;
     const lineToleranceKm = usertolerance / 1_000_000;
     const polyToleranceMeters = usertolerance / 1000;
+    const minSliverAreaM2 = computeMinSliverAreaM2(polyToleranceMeters);
     const effectiveOverlapRatio =
       overlapThresholdRatio ?? DEFAULT_OVERLAP_THRESHOLD;
     const effectiveNearDuplicateMaxOffsetMeters =
@@ -1187,6 +1132,29 @@ export const gisWorker = new Worker(
       );
     }
 
+    // GEO-005 validates holes after structural and winding normalization.
+    // Only proven outside or tiny holes are removed; unresolved ambiguous
+    // hole topology is quarantined from downstream polygon operations.
+    const invalidHoleResult = processInvalidHoles(geojson, {
+      tinyHoleAreaM2: minSliverAreaM2,
+    });
+    geojson = invalidHoleResult.geojson;
+    const invalidHoleValidationReport = invalidHoleResult.report;
+    for (
+      const featureIndex of invalidHoleValidationReport.unresolvedFeatureIndexes
+    ) {
+      quarantinedFeatureIndexes.add(featureIndex);
+    }
+
+    if (invalidHoleValidationReport.invalidHolesFound > 0) {
+      console.log(
+        `🟤 [SnapGIS] Invalid holes — invalid: ` +
+          `${invalidHoleValidationReport.invalidHolesFound} | removed: ` +
+          `${invalidHoleValidationReport.holesRemoved} | unresolved: ` +
+          `${invalidHoleValidationReport.unresolvedIssues}`,
+      );
+    }
+
     const quarantinedFeatures = geojson.features.filter(
       (_: any, featureIndex: number) =>
         quarantinedFeatureIndexes.has(featureIndex),
@@ -1264,7 +1232,6 @@ export const gisWorker = new Worker(
 
     await job.updateProgress(40);
 
-    const minSliverAreaM2 = computeMinSliverAreaM2(polyToleranceMeters);
     const inputSliverCount = countSlivers(
       polyFeaturesAfterDuplicates,
       minSliverAreaM2,
@@ -1414,6 +1381,16 @@ export const gisWorker = new Worker(
         ringOrientationValidationReport.ringsNormalized +
         postProcessingRingsOrientationNormalized,
       ringOrientationValidationReport,
+      invalidHolesFound: invalidHoleValidationReport.invalidHolesFound,
+      holesRemoved: invalidHoleValidationReport.holesRemoved,
+      tinyHolesRemoved: invalidHoleValidationReport.tinyHolesRemoved,
+      outsideHolesRemoved: invalidHoleValidationReport.outsideHolesRemoved,
+      holeOrientationsNormalized:
+        invalidHoleValidationReport.holeOrientationsNormalized,
+      invalidHoleIssuesUnresolved:
+        invalidHoleValidationReport.unresolvedIssues,
+      invalidHoleValidationReport,
+      appliedTinyHoleAreaM2: minSliverAreaM2,
       appliedTolerance: usertolerance,
       appliedOverlapThresholdRatio: effectiveOverlapRatio,
       appliedNearDuplicateMaxOffsetMeters:
