@@ -38,6 +38,18 @@ export interface DryRunIssue {
   details: Record<string, unknown>;
 }
 
+export interface DryRunIssueGroup {
+  groupId: string;
+  check: string;
+  code: string;
+  issueCount: number;
+  affectedFeatureCount: number;
+  affectedFeatureIndexes: number[];
+  affectedFeatureIds: Array<string | number>;
+  geometryTypes: string[];
+  disposition: "AutoRepairAvailable" | "ManualReview" | "Mixed";
+}
+
 interface ValidationReport {
   valid: boolean;
   issues: object[];
@@ -52,10 +64,12 @@ export interface DryRunReport {
     featuresScanned: number;
     checksRun: number;
     issuesFound: number;
+    issueGroups: number;
     affectedFeatures: number;
     autoRepairableIssues: number;
     manualReviewIssues: number;
   };
+  issueGroups: DryRunIssueGroup[];
   affectedFeatureCollection: {
     type: "FeatureCollection";
     features: Array<
@@ -145,6 +159,58 @@ const createQuarantinedView = (
       : feature,
   ),
 });
+
+const groupIssues = (issues: DryRunIssue[]): DryRunIssueGroup[] => {
+  const groups = new Map<
+    string,
+    {
+      check: string;
+      code: string;
+      issueCount: number;
+      featureIndexes: Set<number>;
+      featureIds: Set<string | number>;
+      geometryTypes: Set<string>;
+      dispositions: Set<DryRunIssue["disposition"]>;
+    }
+  >();
+
+  for (const issue of issues) {
+    const groupId = `${issue.check}:${issue.code}`;
+    const group = groups.get(groupId) ?? {
+      check: issue.check,
+      code: issue.code,
+      issueCount: 0,
+      featureIndexes: new Set<number>(),
+      featureIds: new Set<string | number>(),
+      geometryTypes: new Set<string>(),
+      dispositions: new Set<DryRunIssue["disposition"]>(),
+    };
+    group.issueCount++;
+    if (issue.featureIndex >= 0) group.featureIndexes.add(issue.featureIndex);
+    if (issue.featureId !== null) group.featureIds.add(issue.featureId);
+    if (issue.geometryType !== null) group.geometryTypes.add(issue.geometryType);
+    group.dispositions.add(issue.disposition);
+    groups.set(groupId, group);
+  }
+
+  return [...groups.entries()].map(([groupId, group]) => {
+    const dispositions = [...group.dispositions];
+    return {
+      groupId,
+      check: group.check,
+      code: group.code,
+      issueCount: group.issueCount,
+      affectedFeatureCount: group.featureIndexes.size,
+      affectedFeatureIndexes: [...group.featureIndexes].sort(
+        (first, second) => first - second,
+      ),
+      affectedFeatureIds: [...group.featureIds],
+      geometryTypes: [...group.geometryTypes].sort(),
+      disposition:
+        dispositions.length === 1 ? dispositions[0]! : ("Mixed" as const),
+    };
+  });
+};
 
 export const analyzeGeoJson = (
   input: unknown,
@@ -247,6 +313,7 @@ const buildReport = (
   const issues = Object.entries(checks).flatMap(([check, report]) =>
     report.issues.map((issue) => normalizeIssue(check, issue)),
   );
+  const issueGroups = groupIssues(issues);
   const affectedFeatures = new Set(
     issues
       .map((issue) => issue.featureIndex)
@@ -287,10 +354,12 @@ const buildReport = (
         : 0,
       checksRun: Object.keys(checks).length,
       issuesFound: issues.length,
+      issueGroups: issueGroups.length,
       affectedFeatures: affectedFeatures.size,
       autoRepairableIssues,
       manualReviewIssues: issues.length - autoRepairableIssues,
     },
+    issueGroups,
     affectedFeatureCollection,
     appliedOptions,
     issues,

@@ -30,10 +30,24 @@ Successful uploads return `201 Created`:
         "featuresScanned": 4,
         "checksRun": 12,
         "issuesFound": 3,
+        "issueGroups": 1,
         "affectedFeatures": 2,
         "autoRepairableIssues": 1,
         "manualReviewIssues": 2
       },
+      "issueGroups": [
+        {
+          "groupId": "tinyPolygons:TINY_POLYGON",
+          "check": "tinyPolygons",
+          "code": "TINY_POLYGON",
+          "issueCount": 3,
+          "affectedFeatureCount": 2,
+          "affectedFeatureIndexes": [1, 3],
+          "affectedFeatureIds": ["parcel-7", "parcel-9"],
+          "geometryTypes": ["Polygon"],
+          "disposition": "ManualReview"
+        }
+      ],
       "affectedFeatureCollection": {
         "type": "FeatureCollection",
         "features": [
@@ -72,6 +86,13 @@ feature index and ID, geometry type, geometry-collection path, and applicable
 coordinate or polygon paths. `disposition` indicates whether the healing
 pipeline has a conservative automatic repair or whether manual review is
 required.
+
+Use `report.issueGroups` for the frontend error list. It contains one item per
+`check` and `code` combination, regardless of whether the same problem affects
+two or two thousand features. `issueCount` retains the total finding count,
+while `affectedFeatureIndexes` identifies every geometry to highlight.
+`report.issues` remains the detailed drill-down list and is not intended to be
+rendered as the primary error list.
 
 `report.affectedFeatureCollection` is directly renderable GeoJSON. It contains
 each affected feature once, with its complete original geometry and coordinate

@@ -39,7 +39,12 @@ test("upload controller performs a dry run and does not enqueue healing", async 
       status: string;
       report: {
         mode: string;
-        summary: { issuesFound: number };
+        summary: { issuesFound: number; issueGroups: number };
+        issueGroups: Array<{
+          groupId: string;
+          issueCount: number;
+          affectedFeatureIndexes: number[];
+        }>;
         affectedFeatureCollection: {
           type: string;
           features: Array<{
@@ -75,6 +80,15 @@ test("upload controller performs a dry run and does not enqueue healing", async 
   assert.equal(body.data.status, "dry-run-complete");
   assert.equal(body.data.report.mode, "dry-run");
   assert.ok(body.data.report.summary.issuesFound > 0);
+  assert.ok(body.data.report.summary.issueGroups > 0);
+  assert.ok(
+    body.data.report.issueGroups.every(
+      (group) =>
+        group.groupId.length > 0 &&
+        group.issueCount > 0 &&
+        group.affectedFeatureIndexes.length > 0,
+    ),
+  );
   assert.equal(body.data.report.affectedFeatureCollection.type, "FeatureCollection");
   assert.ok(
     body.data.report.affectedFeatureCollection.features.some(

@@ -30,6 +30,8 @@ test("returns a clean report for valid geometry without mutating it", () => {
   assert.equal(report.summary.featuresScanned, 1);
   assert.equal(report.summary.checksRun, 12);
   assert.equal(report.summary.issuesFound, 0);
+  assert.equal(report.summary.issueGroups, 0);
+  assert.deepEqual(report.issueGroups, []);
   assert.deepEqual(input, before);
 });
 
@@ -90,6 +92,46 @@ test("reports issue locations and auto-repair availability without repairing", (
   );
   assert.equal(report.checks.ringClosure?.valid, false);
   assert.deepEqual(input, before);
+});
+
+test("groups the same error type across many affected features", () => {
+  const tinyPolygon = (offset: number, id: string) => ({
+    type: "Feature",
+    id,
+    properties: {},
+    geometry: {
+      type: "Polygon",
+      coordinates: [
+        [
+          [offset, 0],
+          [offset + 0.0000001, 0],
+          [offset + 0.0000001, 0.0000001],
+          [offset, 0.0000001],
+          [offset, 0],
+        ],
+      ],
+    },
+  });
+  const report = analyzeGeoJson(
+    {
+      type: "FeatureCollection",
+      features: [
+        tinyPolygon(0, "sliver-a"),
+        tinyPolygon(0.01, "sliver-b"),
+      ],
+    },
+    { toleranceMillimeters: 25 },
+  );
+
+  const group = report.issueGroups.find(
+    (candidate) => candidate.code === "TINY_POLYGON",
+  );
+  assert.ok(group);
+  assert.equal(group.issueCount, 2);
+  assert.equal(group.affectedFeatureCount, 2);
+  assert.deepEqual(group.affectedFeatureIndexes, [0, 1]);
+  assert.deepEqual(group.affectedFeatureIds, ["sliver-a", "sliver-b"]);
+  assert.equal(group.disposition, "ManualReview");
 });
 
 test("analyzing a file leaves its source bytes unchanged", async () => {

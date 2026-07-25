@@ -17,10 +17,12 @@ const emptyReport: DryRunReport = {
     featuresScanned: 0,
     checksRun: 1,
     issuesFound: 0,
+    issueGroups: 0,
     affectedFeatures: 0,
     autoRepairableIssues: 0,
     manualReviewIssues: 0,
   },
+  issueGroups: [],
   affectedFeatureCollection: {
     type: "FeatureCollection",
     features: [],
