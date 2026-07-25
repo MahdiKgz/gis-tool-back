@@ -5,6 +5,7 @@ import path from "path";
 const TARGET_DIRS = [
   path.join(__dirname, "../../uploads/gis_files"),
   path.join(__dirname, "../../uploads/cleaned_files"),
+  path.join(__dirname, "../../uploads/gis_analyses"),
 ];
 
 const ONE_WEEK_IN_MS = 7 * 24 * 60 * 60 * 1000;

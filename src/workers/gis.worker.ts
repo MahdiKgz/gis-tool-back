@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { Worker, Job, Queue } from "bullmq";
+import { Worker, Job } from "bullmq";
 import { redisConnection } from "../services/queue.service";
 import path from "path";
 import fs from "fs";
@@ -21,10 +21,6 @@ import union from "@turf/union";
 // --- Spatial Index ---
 import RBush from "rbush";
 
-// --- Parsers ---
-import { kml } from "@tmcw/togeojson";
-import { DOMParser } from "@xmldom/xmldom";
-import AdmZip from "adm-zip";
 import {
   capturePolygonAreaBaseline,
   processCollapsedPolygons,
@@ -48,27 +44,9 @@ import { canonicalRingSignature } from "../processing/shared/ring-signature";
 import { processSpikes } from "../processing/spikes";
 import { processTinyPolygons } from "../processing/tiny-polygons";
 import { processZeroAreaPolygons } from "../processing/zero-area-polygons";
+import { readGisFile } from "../services/gis-file.service";
+import { GisJobData } from "../types/gis-job";
 const mapshaper = require("mapshaper");
-
-// ---------------------------------------------------------------------------
-// Job data interface
-// ---------------------------------------------------------------------------
-interface GisJobData {
-  fileName: string;
-  originalName: string;
-  filePath: string;
-  size: number;
-  tolerance?: number;
-  overlapThresholdRatio?: number;
-  // [DUPLICATE DETECTION] Max boundary offset (metres) for a pair of
-  // near-identical polygons to be flagged as a Near Duplicate. Independent
-  // of snap tolerance — a duplicate-detection decision, not a healing one.
-  nearDuplicateMaxOffsetMeters?: number;
-  // Minimum intersection-over-union shape similarity required before a
-  // pair is even considered for near-duplicate classification. Guards
-  // against flagging two genuinely different, merely nearby, parcels.
-  nearDuplicateMinIoU?: number;
-}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1052,30 +1030,8 @@ export const gisWorker = new Worker(
       throw new Error(`File not found: ${filePath}`);
 
     const ext = path.extname(originalName).toLowerCase();
-    let geojson: any;
-
     await job.updateProgress(10);
-
-    if (ext === ".kml") {
-      const xmlDoc = new DOMParser().parseFromString(
-        fs.readFileSync(filePath, "utf-8"),
-        "text/xml",
-      );
-      geojson = kml(xmlDoc);
-    } else if (ext === ".kmz") {
-      const zip = new AdmZip(filePath);
-      const kmlEntry = zip
-        .getEntries()
-        .find((e) => e.entryName.endsWith(".kml"));
-      if (!kmlEntry) throw new Error("KML not found inside KMZ.");
-      const xmlDoc = new DOMParser().parseFromString(
-        kmlEntry.getData().toString("utf-8"),
-        "text/xml",
-      );
-      geojson = kml(xmlDoc);
-    } else {
-      geojson = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-    }
+    let geojson: any = await readGisFile(filePath, originalName);
 
     // GEO-010 is the first semantic gate. Invalid feature geometries are
     // preserved for reporting but quarantined before specialized processors.

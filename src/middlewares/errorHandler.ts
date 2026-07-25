@@ -8,8 +8,8 @@ export class AppError extends Error {
     public code?: string,
   ) {
     super(message);
-    // @ts-ignore
-    Object.setPrototypeOf(this, new AppError());
+    this.name = "AppError";
+    Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
@@ -30,7 +30,7 @@ export const globalErrorHandler = (
       return res.status(400).json({
         success: false,
         code: "FILE_TOO_LARGE",
-        message: "حجم فایل ارسالی بیشتر از حد مجاز (۵۰ مگابایت) است.",
+        message: "The uploaded file exceeds the 5 MB limit.",
       });
     }
     return res
