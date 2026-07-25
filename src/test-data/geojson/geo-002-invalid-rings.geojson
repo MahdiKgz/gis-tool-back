@@ -1,0 +1,89 @@
+{
+  "type": "FeatureCollection",
+  "name": "GEO-002 invalid ring validation",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "repairable-unclosed",
+      "properties": {
+        "expected": "closed automatically"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [0, 0],
+            [2, 0],
+            [2, 2],
+            [0, 2]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "insufficient-ring",
+      "properties": {
+        "expected": "reported and quarantined"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [10, 10],
+            [11, 11],
+            [10, 10]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "corrupted-hole",
+      "properties": {
+        "expected": "reported and quarantined"
+      },
+      "geometry": {
+        "type": "MultiPolygon",
+        "coordinates": [
+          [
+            [
+              [20, 20],
+              [24, 20],
+              [24, 24],
+              [20, 24],
+              [20, 20]
+            ],
+            [[21, 21], [23, 21], null, [22, 23], [21, 21]]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "nested-unclosed",
+      "properties": {
+        "expected": "nested ring closed automatically"
+      },
+      "geometry": {
+        "type": "GeometryCollection",
+        "geometries": [
+          {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [30, 30],
+                [32, 30],
+                [31, 32]
+              ]
+            ]
+          },
+          {
+            "type": "Point",
+            "coordinates": [31, 31]
+          }
+        ]
+      }
+    }
+  ]
+}

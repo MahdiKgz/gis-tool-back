@@ -4,8 +4,10 @@
 
 The duplicate-vertex stage validates coordinate sequences in `LineString`,
 `MultiLineString`, `Polygon`, `MultiPolygon`, and nested
-`GeometryCollection` geometries. It runs immediately after input parsing and
-before topology-specific polygon and line processing.
+`GeometryCollection` geometries. It runs after invalid-ring validation and
+before topology-specific polygon and line processing. Closing safe open rings
+first allows redundant vertices in those rings to be removed without
+violating ring structure.
 
 ## Detection
 

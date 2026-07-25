@@ -30,6 +30,7 @@
 -   [x] Overshoot Repair
 -   [x] Duplicate Polygon Detection
 -   [x] Duplicate Vertex Detection and Safe Repair
+-   [x] Invalid Ring Detection and Safe Repair
 
 ### Infrastructure
 
@@ -54,10 +55,10 @@
 
 ## GEO-002 Invalid Ring Detection
 
--   [ ] Detect unclosed rings
--   [ ] Detect corrupted rings
--   [ ] Detect rings with insufficient vertices
--   [ ] Auto repair when safe
+-   [x] Detect unclosed rings
+-   [x] Detect corrupted rings
+-   [x] Detect rings with insufficient vertices
+-   [x] Auto repair when safe
 
 ## GEO-003 Ring Closure Validation
 
