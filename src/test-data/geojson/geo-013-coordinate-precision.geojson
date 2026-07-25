@@ -1,0 +1,42 @@
+{
+  "type": "FeatureCollection",
+  "name": "GEO-013 coordinate precision",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "excessive",
+      "properties": { "expected": "excess precision reported" },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [1.1234567891, 2]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "rounding-collision",
+      "properties": { "expected": "precision and collision reported" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[0, 0], [0.0000000004, 0], [1, 0]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "unsafe-magnitude",
+      "properties": { "expected": "unsafe precision grid reported" },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [10000000.125, 0]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "valid-nine-decimal",
+      "properties": { "expected": "valid control" },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [1.123456789, 2.987654321]
+      }
+    }
+  ]
+}
