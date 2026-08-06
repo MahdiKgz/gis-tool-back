@@ -1,0 +1,36 @@
+{
+  "type": "FeatureCollection",
+  "name": "GEO-011 geometry dimension validation",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "valid-3d",
+      "properties": { "expected": "valid control" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[0, 0, 1], [1, 1, 2]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "one-dimensional",
+      "properties": { "expected": "invalid dimension reported" },
+      "geometry": { "type": "Point", "coordinates": [1] }
+    },
+    {
+      "type": "Feature",
+      "id": "mixed-dimensions",
+      "properties": { "expected": "inconsistent dimension reported" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[0, 0], [1, 1, 5]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "invalid-value",
+      "properties": { "expected": "invalid coordinate value reported" },
+      "geometry": { "type": "Point", "coordinates": [0, "x"] }
+    }
+  ]
+}

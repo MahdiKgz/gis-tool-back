@@ -39,6 +39,7 @@
 -   [x] Tiny Polygon Detection
 -   [x] Collapsed Polygon Detection After Repair
 -   [x] Geometry Type Validation
+-   [x] Geometry Dimension Validation
 
 ### Infrastructure
 
@@ -121,7 +122,7 @@
 
 ## GEO-011 Geometry Dimension Validation
 
--   [ ] Validate geometry dimensions
+-   [x] Validate geometry dimensions
 
 ## GEO-012 Multipart Geometry Validation
 
