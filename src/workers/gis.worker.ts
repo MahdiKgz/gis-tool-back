@@ -18,7 +18,6 @@ import area from "@turf/area";
 import bbox from "@turf/bbox";
 import intersect from "@turf/intersect";
 import union from "@turf/union";
-import rewind from "@turf/rewind";
 
 // --- Spatial Index ---
 import RBush from "rbush";
@@ -33,6 +32,7 @@ import {
   buildRingClosureReport,
   detectOpenRings,
 } from "../processing/ring-closure";
+import { processRingOrientation } from "../processing/ring-orientation";
 const mapshaper = require("mapshaper");
 
 // ---------------------------------------------------------------------------
@@ -1167,6 +1167,26 @@ export const gisWorker = new Worker(
       );
     }
 
+    // GEO-004 normalizes RFC 7946 winding before polygon topology work:
+    // exterior rings counterclockwise, interior rings clockwise.
+    const ringOrientationResult = processRingOrientation(geojson);
+    geojson = ringOrientationResult.geojson;
+    const ringOrientationValidationReport = ringOrientationResult.report;
+    const unresolvedOrientationFeatureIndexes =
+      ringOrientationValidationReport.unresolvedFeatureIndexes;
+    for (const featureIndex of unresolvedOrientationFeatureIndexes) {
+      quarantinedFeatureIndexes.add(featureIndex);
+    }
+
+    if (ringOrientationValidationReport.orientationIssuesFound > 0) {
+      console.log(
+        `🟢 [SnapGIS] Ring orientation — issues: ` +
+          `${ringOrientationValidationReport.orientationIssuesFound} | normalized: ` +
+          `${ringOrientationValidationReport.ringsNormalized} | unresolved: ` +
+          `${ringOrientationValidationReport.unresolvedIssues}`,
+      );
+    }
+
     const quarantinedFeatures = geojson.features.filter(
       (_: any, featureIndex: number) =>
         quarantinedFeatureIndexes.has(featureIndex),
@@ -1294,16 +1314,32 @@ export const gisWorker = new Worker(
     let sliversRemovedCount = 0;
     let gapsFound = 0;
     let gapsClosed = 0;
+    let postProcessingRingsOrientationNormalized = 0;
+    let postProcessingRingOrientationIssuesUnresolved = 0;
 
     if (healedPolysList.length > 0) {
-      healedPolysList = healedPolysList.map((f) => rewind(f)); // rewind first
-      processedPolys = featureCollection(healedPolysList); // snapshot after
+      const finalOrientationResult = processRingOrientation(
+        featureCollection(healedPolysList),
+      );
+      healedPolysList = finalOrientationResult.geojson.features;
+      postProcessingRingsOrientationNormalized =
+        finalOrientationResult.report.ringsNormalized;
+      postProcessingRingOrientationIssuesUnresolved =
+        finalOrientationResult.report.unresolvedIssues;
+      processedPolys = featureCollection(healedPolysList);
 
       const mapshaperOutput = await runMapshaperPipeline(
         processedPolys,
         polyToleranceMeters,
       );
-      processedPolys = mapshaperOutput.result;
+      const outputOrientationResult = processRingOrientation(
+        mapshaperOutput.result,
+      );
+      processedPolys = outputOrientationResult.geojson;
+      postProcessingRingsOrientationNormalized +=
+        outputOrientationResult.report.ringsNormalized;
+      postProcessingRingOrientationIssuesUnresolved +=
+        outputOrientationResult.report.unresolvedIssues;
       sliversRemovedCount = mapshaperOutput.sliversRemovedCount;
       gapsFound = mapshaperOutput.gapsFound;
       gapsClosed = mapshaperOutput.gapsClosed;
@@ -1366,6 +1402,18 @@ export const gisWorker = new Worker(
       openRingsUnresolved:
         ringClosureValidationReport.unresolvedOpenRings,
       ringClosureValidationReport,
+      ringOrientationIssuesFound:
+        ringOrientationValidationReport.orientationIssuesFound,
+      inputRingsOrientationNormalized:
+        ringOrientationValidationReport.ringsNormalized,
+      ringOrientationIssuesUnresolved:
+        ringOrientationValidationReport.unresolvedIssues,
+      postProcessingRingsOrientationNormalized,
+      postProcessingRingOrientationIssuesUnresolved,
+      ringsOrientationNormalized:
+        ringOrientationValidationReport.ringsNormalized +
+        postProcessingRingsOrientationNormalized,
+      ringOrientationValidationReport,
       appliedTolerance: usertolerance,
       appliedOverlapThresholdRatio: effectiveOverlapRatio,
       appliedNearDuplicateMaxOffsetMeters:
