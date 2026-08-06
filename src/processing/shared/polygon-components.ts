@@ -18,7 +18,7 @@ const isClosedRing = (value: unknown): value is Position[] =>
   value.every(isFinitePosition) &&
   positionsEqual(value[0]!, value[value.length - 1]!);
 
-const validPolygonCoordinates = (
+export const isValidPolygonCoordinates = (
   value: unknown,
 ): value is Position[][] =>
   Array.isArray(value) &&
@@ -44,7 +44,7 @@ export const visitPolygonComponents = (
 
   if (
     geometry.type === "Polygon" &&
-    validPolygonCoordinates(geometry.coordinates)
+    isValidPolygonCoordinates(geometry.coordinates)
   ) {
     visitor({
       geometryType: "Polygon",
@@ -62,7 +62,7 @@ export const visitPolygonComponents = (
     return;
   }
   geometry.coordinates.forEach((coordinates, polygonIndex) => {
-    if (!validPolygonCoordinates(coordinates)) return;
+    if (!isValidPolygonCoordinates(coordinates)) return;
     visitor({
       geometryType: "MultiPolygon",
       geometryCollectionPath,
