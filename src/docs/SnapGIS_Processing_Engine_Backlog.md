@@ -38,6 +38,7 @@
 -   [x] Zero-Area Polygon Detection
 -   [x] Tiny Polygon Detection
 -   [x] Collapsed Polygon Detection After Repair
+-   [x] Geometry Type Validation
 
 ### Infrastructure
 
@@ -116,7 +117,7 @@
 
 ## GEO-010 Geometry Type Validation
 
--   [ ] Validate geometry types
+-   [x] Validate geometry types
 
 ## GEO-011 Geometry Dimension Validation
 
