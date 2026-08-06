@@ -34,6 +34,7 @@
 -   [x] Ring Closure Validation and Safe Auto-Close
 -   [x] Ring Orientation Validation and Normalization
 -   [x] Invalid Hole Validation and Conservative Repair
+-   [x] Spike Detection and Safe Repair
 
 ### Infrastructure
 
@@ -94,9 +95,9 @@
 
 ## GEO-006 Spike Detection
 
--   [ ] Detect spikes
--   [ ] Configurable tolerance
--   [ ] Auto repair
+-   [x] Detect spikes
+-   [x] Configurable tolerance
+-   [x] Auto repair
 
 ## GEO-007 Zero Area Polygon Detection
 

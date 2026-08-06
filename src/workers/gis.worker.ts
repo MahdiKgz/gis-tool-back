@@ -35,6 +35,7 @@ import {
 } from "../processing/ring-closure";
 import { processRingOrientation } from "../processing/ring-orientation";
 import { canonicalRingSignature } from "../processing/shared/ring-signature";
+import { processSpikes } from "../processing/spikes";
 const mapshaper = require("mapshaper");
 
 // ---------------------------------------------------------------------------
@@ -1155,6 +1156,26 @@ export const gisWorker = new Worker(
       );
     }
 
+    // GEO-006 removes only high-confidence narrow backtracks whose shoulder
+    // width falls within the job's metric tolerance.
+    const spikeResult = processSpikes(geojson, {
+      baseToleranceMeters: polyToleranceMeters,
+    });
+    geojson = spikeResult.geojson;
+    const spikeValidationReport = spikeResult.report;
+    for (const featureIndex of spikeValidationReport.unresolvedFeatureIndexes) {
+      quarantinedFeatureIndexes.add(featureIndex);
+    }
+
+    if (spikeValidationReport.spikesFound > 0) {
+      console.log(
+        `🟧 [SnapGIS] Spikes — found: ` +
+          `${spikeValidationReport.spikesFound} | removed: ` +
+          `${spikeValidationReport.spikesRemoved} | unresolved: ` +
+          `${spikeValidationReport.unresolvedSpikes}`,
+      );
+    }
+
     const quarantinedFeatures = geojson.features.filter(
       (_: any, featureIndex: number) =>
         quarantinedFeatureIndexes.has(featureIndex),
@@ -1391,6 +1412,11 @@ export const gisWorker = new Worker(
         invalidHoleValidationReport.unresolvedIssues,
       invalidHoleValidationReport,
       appliedTinyHoleAreaM2: minSliverAreaM2,
+      spikesFound: spikeValidationReport.spikesFound,
+      spikesRemoved: spikeValidationReport.spikesRemoved,
+      spikesUnresolved: spikeValidationReport.unresolvedSpikes,
+      spikeValidationReport,
+      appliedSpikeBaseToleranceMeters: polyToleranceMeters,
       appliedTolerance: usertolerance,
       appliedOverlapThresholdRatio: effectiveOverlapRatio,
       appliedNearDuplicateMaxOffsetMeters:
