@@ -1,0 +1,104 @@
+{
+  "type": "FeatureCollection",
+  "name": "GEO-005 invalid hole validation",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "outside-hole",
+      "properties": { "expected": "outside hole removed" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]],
+          [[12, 12], [12, 13], [13, 13], [13, 12], [12, 12]]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "nested-hole",
+      "properties": { "expected": "inner hole reported" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]],
+          [[2, 2], [2, 8], [8, 8], [8, 2], [2, 2]],
+          [[3, 3], [3, 4], [4, 4], [4, 3], [3, 3]]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "duplicate-hole",
+      "properties": { "expected": "rotated duplicate reported" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]],
+          [[2, 2], [2, 4], [4, 4], [4, 2], [2, 2]],
+          [[4, 4], [4, 2], [2, 2], [2, 4], [4, 4]]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "self-intersecting-hole",
+      "properties": { "expected": "reported for manual review" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]],
+          [[2, 2], [6, 6], [2, 6], [6, 2], [2, 2]]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "touching-hole",
+      "properties": { "expected": "boundary contact reported" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]],
+          [[0, 2], [0, 4], [2, 4], [2, 2], [0, 2]]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "tiny-hole",
+      "properties": { "expected": "tiny hole removed" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]],
+          [[1, 1], [1, 1.000001], [1.000001, 1.000001], [1.000001, 1], [1, 1]]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "larger-hole",
+      "properties": { "expected": "outside larger hole removed" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]],
+          [[-1, -1], [-1, 2], [2, 2], [2, -1], [-1, -1]]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "wrong-hole-orientation",
+      "properties": { "expected": "hole orientation normalized" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]],
+          [[2, 2], [4, 2], [4, 4], [2, 4], [2, 2]]
+        ]
+      }
+    }
+  ]
+}

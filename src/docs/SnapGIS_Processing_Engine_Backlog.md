@@ -33,6 +33,7 @@
 -   [x] Invalid Ring Detection and Safe Repair
 -   [x] Ring Closure Validation and Safe Auto-Close
 -   [x] Ring Orientation Validation and Normalization
+-   [x] Invalid Hole Validation and Conservative Repair
 
 ### Infrastructure
 
@@ -77,19 +78,19 @@
 
 ### Detection
 
--   [ ] Hole Outside Polygon
--   [ ] Nested Hole
--   [ ] Duplicate Hole
--   [ ] Self Intersecting Hole
--   [ ] Hole Touching Boundary
--   [ ] Tiny Hole
--   [ ] Hole Larger Than Polygon
+-   [x] Hole Outside Polygon
+-   [x] Nested Hole
+-   [x] Duplicate Hole
+-   [x] Self Intersecting Hole
+-   [x] Hole Touching Boundary
+-   [x] Tiny Hole
+-   [x] Hole Larger Than Polygon
 
 ### Repair
 
--   [ ] Remove tiny holes
--   [ ] Remove outside holes
--   [ ] Normalize hole orientation
+-   [x] Remove tiny holes
+-   [x] Remove outside holes
+-   [x] Normalize hole orientation
 
 ## GEO-006 Spike Detection
 
