@@ -5,7 +5,6 @@ import path from "path";
 import fs from "fs";
 
 // --- Turf.js Modules ---
-import truncate from "@turf/truncate";
 import kinks from "@turf/kinks";
 import unkinkPolygon from "@turf/unkink-polygon";
 import distance from "@turf/distance";
@@ -30,6 +29,10 @@ import {
   capturePolygonAreaBaseline,
   processCollapsedPolygons,
 } from "../processing/collapsed-polygons";
+import {
+  prepareOutputCoordinates,
+  processCoordinatePrecision,
+} from "../processing/coordinate-precision";
 import { processDuplicateVertices } from "../processing/duplicate-vertices";
 import { processGeometryDimensions } from "../processing/geometry-dimensions";
 import { processGeometryTypes } from "../processing/geometry-types";
@@ -1126,6 +1129,20 @@ export const gisWorker = new Worker(
       );
     }
 
+    // GEO-013 reports precision loss before any output rounding can merge
+    // distinct vertices or exceed the safe floating-point grid.
+    const coordinatePrecisionResult = processCoordinatePrecision(geojson, {
+      maxDecimalPlaces: 9,
+    });
+    const coordinatePrecisionValidationReport =
+      coordinatePrecisionResult.report;
+    if (coordinatePrecisionValidationReport.unresolvedIssues > 0) {
+      console.log(
+        `🟩 [SnapGIS] Coordinate precision — issues: ` +
+          `${coordinatePrecisionValidationReport.precisionIssuesFound}`,
+      );
+    }
+
     // GEO-009 keeps an O(p) area baseline rather than cloning the complete
     // input so later repair results can be distinguished from input defects.
     const polygonAreaBaseline = capturePolygonAreaBaseline(geojson);
@@ -1145,6 +1162,7 @@ export const gisWorker = new Worker(
       ...geometryTypeValidationReport.unresolvedFeatureIndexes,
       ...geometryDimensionValidationReport.unresolvedFeatureIndexes,
       ...multipartIntegrityValidationReport.unresolvedFeatureIndexes,
+      ...coordinatePrecisionValidationReport.unresolvedFeatureIndexes,
       ...invalidRingValidationReport.unresolvedFeatureIndexes,
     ]);
 
@@ -1466,10 +1484,7 @@ export const gisWorker = new Worker(
       ...otherFeatures,
     ];
 
-    const optimizedGeojson = truncate(geojson, {
-      precision: 9,
-      coordinates: 3,
-    });
+    const optimizedGeojson = prepareOutputCoordinates(geojson, 9);
     optimizedGeojson.features.push(...quarantinedFeatures);
 
     const outputDir = path.join(__dirname, "../../uploads/cleaned_files");
@@ -1575,6 +1590,18 @@ export const gisWorker = new Worker(
       multipartIntegrityIssuesUnresolved:
         multipartIntegrityValidationReport.unresolvedIssues,
       multipartIntegrityValidationReport,
+      coordinatePrecisionIssuesFound:
+        coordinatePrecisionValidationReport.precisionIssuesFound,
+      excessiveCoordinateValues:
+        coordinatePrecisionValidationReport.excessiveCoordinateValues,
+      coordinateRoundingCollisions:
+        coordinatePrecisionValidationReport.roundingCollisions,
+      unsafeCoordinateMagnitudeValues:
+        coordinatePrecisionValidationReport.unsafeMagnitudeValues,
+      coordinatePrecisionIssuesUnresolved:
+        coordinatePrecisionValidationReport.unresolvedIssues,
+      coordinatePrecisionValidationReport,
+      appliedCoordinatePrecision: 9,
       appliedTolerance: usertolerance,
       appliedOverlapThresholdRatio: effectiveOverlapRatio,
       appliedNearDuplicateMaxOffsetMeters:
