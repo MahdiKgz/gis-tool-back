@@ -1,0 +1,35 @@
+{
+  "type": "FeatureCollection",
+  "name": "GEO-008 tiny polygons",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "tiny-positive",
+      "properties": { "expected": "tiny polygon reported" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[0, 0], [0.000001, 0], [0.000001, 0.000001], [0, 0]]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "zero-control",
+      "properties": { "expected": "owned by GEO-007, not GEO-008" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[0, 0], [1, 0], [2, 0], [0, 0]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "normal-control",
+      "properties": { "expected": "unchanged" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]
+      }
+    }
+  ]
+}
