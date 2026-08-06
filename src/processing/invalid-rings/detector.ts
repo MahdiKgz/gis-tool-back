@@ -3,7 +3,8 @@ import {
   positionKey,
   positionsEqual,
 } from "../shared/coordinates";
-import { visitRingCandidates } from "./ring-candidates";
+import { getFeatureId } from "../shared/feature-id";
+import { visitRingCandidates } from "../shared/polygon-rings";
 import {
   FeatureCollectionLike,
   GeoJsonFeatureLike,
@@ -12,16 +13,6 @@ import {
   RingCandidate,
   RingCorruptionReason,
 } from "./types";
-
-const featureId = (
-  feature: GeoJsonFeatureLike,
-): string | number | null => {
-  if (feature.id !== undefined) return feature.id;
-  const propertyId = feature.properties?.id;
-  return typeof propertyId === "string" || typeof propertyId === "number"
-    ? propertyId
-    : null;
-};
 
 const baseFinding = (
   candidate: RingCandidate,
@@ -33,7 +24,7 @@ const baseFinding = (
   corruptionReason: RingCorruptionReason | null,
 ) => ({
   featureIndex,
-  featureId: featureId(feature),
+  featureId: getFeatureId(feature),
   geometryType: candidate.geometryType,
   geometryCollectionPath: [...candidate.geometryCollectionPath],
   coordinatePath: [...candidate.coordinatePath],

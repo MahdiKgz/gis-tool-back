@@ -23,5 +23,6 @@ export const processInvalidRings = <T extends FeatureCollectionLike>(
   return {
     geojson: repair.geojson,
     report: buildInvalidRingReport(detection, repair.repairedRingKeys),
+    repairedRingKeys: repair.repairedRingKeys,
   };
 };

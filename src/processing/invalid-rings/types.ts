@@ -2,6 +2,10 @@ import {
   FeatureCollectionLike,
   GeoJsonFeatureLike,
 } from "../shared/geojson";
+import {
+  RingCandidate,
+  RingRole,
+} from "../shared/polygon-rings";
 
 export type InvalidRingIssueType =
   | "unclosed"
@@ -12,16 +16,6 @@ export type RingCorruptionReason =
   | "RING_NOT_ARRAY"
   | "EMPTY_RING"
   | "INVALID_POSITION";
-
-export type RingRole = "exterior" | "interior";
-
-export interface RingCandidate {
-  geometryType: "Polygon" | "MultiPolygon";
-  geometryCollectionPath: number[];
-  coordinatePath: number[];
-  role: RingRole;
-  ring: unknown;
-}
 
 export interface InvalidRingFinding {
   code:
@@ -68,9 +62,12 @@ export interface InvalidRingDetectionResult {
 export interface InvalidRingProcessResult<T = FeatureCollectionLike> {
   geojson: T;
   report: InvalidRingValidationReport;
+  repairedRingKeys: Set<string>;
 }
 
 export type {
   FeatureCollectionLike,
   GeoJsonFeatureLike,
+  RingCandidate,
+  RingRole,
 };

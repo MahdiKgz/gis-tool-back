@@ -6,10 +6,10 @@ import { visitCoordinateSequences } from "./coordinate-sequences";
 import {
   DuplicateVertexFinding,
   FeatureCollectionLike,
-  GeoJsonFeatureLike,
   Position,
   SequenceKind,
 } from "./types";
+import { getFeatureId } from "../shared/feature-id";
 
 const isRequiredRingClosure = (
   coordinates: Position[],
@@ -66,14 +66,6 @@ const canSafelyCollapse = (
   return distinctVertices >= 3;
 };
 
-const featureId = (feature: GeoJsonFeatureLike): string | number | null => {
-  if (feature.id !== undefined) return feature.id;
-  const propertyId = feature.properties?.id;
-  return typeof propertyId === "string" || typeof propertyId === "number"
-    ? propertyId
-    : null;
-};
-
 export const detectDuplicateVertices = (
   geojson: FeatureCollectionLike,
 ): DuplicateVertexFinding[] => {
@@ -107,7 +99,7 @@ export const detectDuplicateVertices = (
           findings.push({
             code: "DUPLICATE_VERTEX",
             featureIndex,
-            featureId: featureId(feature),
+            featureId: getFeatureId(feature),
             geometryType: sequence.geometryType,
             geometryCollectionPath: [...sequence.geometryCollectionPath],
             coordinatePath: [
@@ -132,7 +124,7 @@ export const detectDuplicateVertices = (
           findings.push({
             code: "DUPLICATE_VERTEX",
             featureIndex,
-            featureId: featureId(feature),
+            featureId: getFeatureId(feature),
             geometryType: sequence.geometryType,
             geometryCollectionPath: [...sequence.geometryCollectionPath],
             coordinatePath: [

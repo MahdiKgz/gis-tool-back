@@ -1,0 +1,110 @@
+{
+  "type": "FeatureCollection",
+  "name": "GEO-003 ring closure validation",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "open-3d-exterior",
+      "properties": {
+        "expected": "closed with the complete first position"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [0, 0, 5],
+            [4, 0, 5],
+            [4, 4, 5],
+            [0, 4, 5]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "open-multipolygon-hole",
+      "properties": {
+        "expected": "open interior ring closed"
+      },
+      "geometry": {
+        "type": "MultiPolygon",
+        "coordinates": [
+          [
+            [
+              [10, 10],
+              [16, 10],
+              [16, 16],
+              [10, 16],
+              [10, 10]
+            ],
+            [
+              [11, 11],
+              [13, 11],
+              [12, 13]
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "corrupted-open-ring",
+      "properties": {
+        "expected": "reported but not closed"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [20, 20],
+            null,
+            [24, 20],
+            [22, 24]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "insufficient-open-ring",
+      "properties": {
+        "expected": "reported but not closed"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [30, 30],
+            [31, 31]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "nested-open-ring",
+      "properties": {
+        "expected": "nested polygon ring closed"
+      },
+      "geometry": {
+        "type": "GeometryCollection",
+        "geometries": [
+          {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [40, 40],
+                [42, 40],
+                [41, 42]
+              ]
+            ]
+          },
+          {
+            "type": "Point",
+            "coordinates": [41, 41]
+          }
+        ]
+      }
+    }
+  ]
+}
