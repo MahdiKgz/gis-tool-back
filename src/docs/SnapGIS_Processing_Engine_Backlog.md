@@ -35,6 +35,7 @@
 -   [x] Ring Orientation Validation and Normalization
 -   [x] Invalid Hole Validation and Conservative Repair
 -   [x] Spike Detection and Safe Repair
+-   [x] Zero-Area Polygon Detection
 
 ### Infrastructure
 
@@ -101,7 +102,7 @@
 
 ## GEO-007 Zero Area Polygon Detection
 
--   [ ] Detect zero-area polygons
+-   [x] Detect zero-area polygons
 
 ## GEO-008 Tiny Polygon Detection
 
