@@ -20,7 +20,7 @@
 
 ### Geometry
 
--   [x] Self Intersection Detection
+-   [x] Self Intersection Detection and Dry-Run Reporting
 -   [x] Self Intersection Repair
 -   [x] Polygon Overlap Detection
 -   [x] Multi-pass Overlap Repair

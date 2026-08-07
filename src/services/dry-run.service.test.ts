@@ -28,7 +28,7 @@ test("returns a clean report for valid geometry without mutating it", () => {
   assert.equal(report.mode, "dry-run");
   assert.equal(report.valid, true);
   assert.equal(report.summary.featuresScanned, 1);
-  assert.equal(report.summary.checksRun, 12);
+  assert.equal(report.summary.checksRun, 13);
   assert.equal(report.summary.issuesFound, 0);
   assert.equal(report.summary.issueGroups, 0);
   assert.deepEqual(report.issueGroups, []);
@@ -160,4 +160,52 @@ test("stops safely after the root GeoJSON structure check fails", () => {
   assert.equal(report.summary.checksRun, 1);
   assert.deepEqual(report.affectedFeatureCollection.features, []);
   assert.equal(report.checks.geometryTypes?.rootValid, false);
+});
+
+test("reports self-intersection before its secondary area consequences", () => {
+  const report = analyzeGeoJson(
+    {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          id: 8,
+          properties: { caseId: "SELF-INTERSECTION" },
+          geometry: {
+            type: "Polygon",
+            coordinates: [
+              [
+                [51.46, 35.7],
+                [51.47, 35.71],
+                [51.46, 35.71],
+                [51.47, 35.7],
+                [51.46, 35.7],
+              ],
+            ],
+          },
+        },
+      ],
+    },
+    { toleranceMillimeters: 30 },
+  );
+
+  const selfIntersectionIndex = report.issues.findIndex(
+    (issue) => issue.code === "SELF_INTERSECTION",
+  );
+  const zeroAreaIndex = report.issues.findIndex(
+    (issue) => issue.code === "ZERO_AREA_POLYGON",
+  );
+  assert.ok(selfIntersectionIndex >= 0);
+  assert.ok(zeroAreaIndex > selfIntersectionIndex);
+  const issue = report.issues[selfIntersectionIndex]!;
+  assert.equal(issue.check, "selfIntersections");
+  assert.equal(issue.featureId, 8);
+  assert.deepEqual(issue.location.coordinatePath, [0, 0]);
+  assert.deepEqual(issue.location.relatedCoordinatePath, [0, 2]);
+  assert.deepEqual(issue.details.intersectionGeometry, {
+    type: "Point",
+    coordinates: [51.465, 35.705],
+  });
+  assert.equal(issue.disposition, "ManualReview");
+  assert.equal(report.summary.checksRun, 13);
 });

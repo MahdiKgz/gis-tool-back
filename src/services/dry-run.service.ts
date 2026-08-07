@@ -7,6 +7,7 @@ import { processInvalidRings } from "../processing/invalid-rings";
 import { processMultipartIntegrity } from "../processing/multipart-integrity";
 import { processRingClosure } from "../processing/ring-closure";
 import { processRingOrientation } from "../processing/ring-orientation";
+import { processSelfIntersections } from "../processing/self-intersections";
 import {
   FeatureCollectionLike,
   GeoJsonFeatureLike,
@@ -280,6 +281,8 @@ export const analyzeGeoJson = (
     ...invalidRingReport.unresolvedFeatureIndexes,
   ]);
   const polygonInput = createQuarantinedView(geojson, polygonUnsafe);
+  checks.selfIntersections =
+    processSelfIntersections(polygonInput).report;
   checks.ringOrientation =
     processRingOrientation(polygonInput, false).report;
   checks.invalidHoles = processInvalidHoles(
