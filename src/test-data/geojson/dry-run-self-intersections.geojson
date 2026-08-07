@@ -1,0 +1,48 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "valid-square",
+      "properties": {},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[0, 0], [2, 0], [2, 2], [0, 2], [0, 0]]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "bow-tie",
+      "properties": {},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[3, 0], [5, 2], [3, 2], [5, 0], [3, 0]]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "nested-multipolygon",
+      "properties": {},
+      "geometry": {
+        "type": "GeometryCollection",
+        "geometries": [
+          {
+            "type": "MultiPolygon",
+            "coordinates": [
+              [
+                [[6, 0], [8, 0], [8, 2], [6, 2], [6, 0]]
+              ],
+              [
+                [[9, 0], [11, 2], [9, 2], [11, 0], [9, 0]]
+              ]
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
