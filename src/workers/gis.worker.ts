@@ -51,6 +51,12 @@ import {
 import { processTinyPolygons } from "../processing/tiny-polygons";
 import { processZeroAreaPolygons } from "../processing/zero-area-polygons";
 import { readGisFile } from "../services/gis-file.service";
+import {
+  markAnalysisCompleted,
+  markAnalysisFailed,
+  markAnalysisProcessing,
+  markAnalysisProgress,
+} from "../services/analysis-store.service";
 import { GisJobData } from "../types/gis-job";
 const mapshaper = require("mapshaper");
 
@@ -1338,15 +1344,71 @@ export const gisWorker = new Worker(
       originalSizeInBytes: size,
       optimizedSizeInBytes: newSize,
       downloadPath: `/uploads/cleaned_files/${outputFileName}`,
+      outputFileName,
+      outputFilePath,
     };
   },
   { connection: redisConnection as any, concurrency: 2 },
 );
 
-gisWorker.on("completed", (job) => {
+const persistLifecycle = (
+  operation: Promise<unknown>,
+  event: string,
+  jobId: string,
+): void => {
+  void operation.catch((error) => {
+    console.error(
+      `❌ [SnapGIS Worker] Could not persist ${event} for job ${jobId}:`,
+      error,
+    );
+  });
+};
+
+gisWorker.on("active", (job) => {
+  const jobId = String(job.id);
+  persistLifecycle(markAnalysisProcessing(jobId), "active state", jobId);
+});
+
+gisWorker.on("progress", (job, progress) => {
+  const jobId = String(job.id);
+  const numericProgress =
+    typeof progress === "number"
+      ? progress
+      : typeof progress === "object" &&
+          progress !== null &&
+          "value" in progress &&
+          typeof progress.value === "number"
+        ? progress.value
+        : 0;
+  persistLifecycle(
+    markAnalysisProgress(jobId, numericProgress),
+    "progress",
+    jobId,
+  );
+});
+
+gisWorker.on("completed", (job, result) => {
   console.log(`✅ [SnapGIS Worker] Job ${job.id} COMPLETED.`);
+  const jobId = String(job.id);
+  persistLifecycle(
+    markAnalysisCompleted(jobId, result),
+    "completion result",
+    jobId,
+  );
 });
 
 gisWorker.on("failed", (job, err) => {
   console.error(`❌ [SnapGIS Worker] Job ${job?.id} FAILED: ${err.message}`);
+  if (!job?.id) return;
+  const maximumAttempts = job.opts.attempts ?? 1;
+  if (job.attemptsMade < maximumAttempts) return;
+  const jobId = String(job.id);
+  persistLifecycle(
+    markAnalysisFailed(
+      jobId,
+      "Healing failed after all retry attempts. Please try again.",
+    ),
+    "failure state",
+    jobId,
+  );
 });

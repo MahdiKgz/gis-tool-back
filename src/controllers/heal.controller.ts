@@ -3,9 +3,11 @@ import { NextFunction, Request, Response } from "express";
 import {
   getAnalysis,
   markAnalysisQueued,
+  resetAnalysisQueueRequest,
 } from "../services/analysis-store.service";
 import { gisQueue } from "../services/queue.service";
 import { AppError } from "../middlewares/errorHandler";
+import { buildHealStatusData } from "./heal-status.controller";
 
 export const healAnalyzedFile = async (
   req: Request,
@@ -32,16 +34,18 @@ export const healAnalyzedFile = async (
       throw new AppError(404, "Dry-run job not found", "JOB_NOT_FOUND");
     }
 
+    if (analysis.queueJobId && analysis.healStatus === "failed") {
+      analysis = (await resetAnalysisQueueRequest(analysis.id)) ?? analysis;
+    }
+
     if (analysis.queueJobId) {
-      res.status(202).json({
+      res.status(analysis.healStatus === "completed" ? 200 : 202).json({
         success: true,
-        message: "Healing was already queued for this dry run.",
-        data: {
-          jobId: analysis.queueJobId,
-          dryRunJobId: analysis.id,
-          status: "queued",
-          queuedAt: analysis.queuedAt,
-        },
+        message:
+          analysis.healStatus === "completed"
+            ? "Healing has already completed."
+            : "Healing was already requested for this dry run.",
+        data: buildHealStatusData(analysis),
       });
       return;
     }
@@ -56,13 +60,19 @@ export const healAnalyzedFile = async (
       );
     }
 
-    const job = await gisQueue.add(
-      "heal-gis-file",
-      analysis.jobData,
-      { jobId: analysis.id },
-    );
-    const queueJobId = String(job.id ?? analysis.id);
-    const updated = await markAnalysisQueued(analysis, queueJobId);
+    const updated = await markAnalysisQueued(analysis, analysis.id);
+    let queueJobId = analysis.id;
+    try {
+      const job = await gisQueue.add(
+        "heal-gis-file",
+        analysis.jobData,
+        { jobId: analysis.id },
+      );
+      queueJobId = String(job.id ?? analysis.id);
+    } catch (error) {
+      await resetAnalysisQueueRequest(analysis.id);
+      throw error;
+    }
 
     console.log(
       `🚀 [Queue] Heal job ${queueJobId} added from dry run ${analysis.id}`,
@@ -72,10 +82,7 @@ export const healAnalyzedFile = async (
       success: true,
       message: "Healing has been queued.",
       data: {
-        jobId: queueJobId,
-        dryRunJobId: updated.id,
-        status: "queued",
-        queuedAt: updated.queuedAt,
+        ...buildHealStatusData(updated),
       },
     });
   } catch (error) {

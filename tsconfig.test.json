@@ -8,6 +8,7 @@
     "src/processing/**/*.ts",
     "src/controllers/upload.controller.ts",
     "src/controllers/upload.controller.integration.test.ts",
+    "src/controllers/heal-status.controller.integration.test.ts",
     "src/middlewares/**/*.ts",
     "src/routes/upload.route.ts",
     "src/services/**/*.ts",

@@ -51,6 +51,7 @@
 -   [x] KML Support
 -   [x] KMZ Support
 -   [x] Background Processing
+-   [x] Durable Heal Status, Result Preview, and Download Delivery
 
 ------------------------------------------------------------------------
 

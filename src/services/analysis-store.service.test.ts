@@ -5,7 +5,12 @@ import path from "node:path";
 import test from "node:test";
 import {
   getAnalysis,
+  markAnalysisCompleted,
+  markAnalysisFailed,
+  markAnalysisProcessing,
+  markAnalysisProgress,
   markAnalysisQueued,
+  resetAnalysisQueueRequest,
   saveAnalysis,
 } from "./analysis-store.service";
 import { DryRunReport } from "./dry-run.service";
@@ -72,7 +77,77 @@ test("persists and marks a dry-run record as queued", async (t) => {
   );
   assert.equal(queued.queueJobId, saved.id);
   assert.ok(queued.queuedAt);
-  assert.deepEqual(await getAnalysis(saved.id, storeDirectory), queued);
+  assert.equal(queued.healStatus, "queued");
+
+  await markAnalysisProcessing(saved.id, storeDirectory);
+  await markAnalysisProgress(saved.id, 42, storeDirectory);
+  const completed = await markAnalysisCompleted(
+    saved.id,
+    {
+      outputFileName: "cleaned-source.geojson",
+      outputFilePath: "/tmp/cleaned-source.geojson",
+      gapsClosed: 2,
+    },
+    storeDirectory,
+  );
+  assert.equal(completed?.healStatus, "completed");
+  assert.equal(completed?.healProgress, 100);
+  assert.ok(completed?.healStartedAt);
+  assert.ok(completed?.healCompletedAt);
+  assert.equal(completed?.healResult?.gapsClosed, 2);
+  assert.deepEqual(await getAnalysis(saved.id, storeDirectory), completed);
+});
+
+test("does not let a late queued write downgrade processing state", async (t) => {
+  const storeDirectory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "snapgis-analysis-race-"),
+  );
+  t.after(() => fs.rm(storeDirectory, { recursive: true, force: true }));
+  const saved = await saveAnalysis(
+    {
+      fileName: "stored.geojson",
+      originalName: "source.geojson",
+      filePath: "/tmp/source.geojson",
+      size: 12,
+      tolerance: 25,
+    },
+    emptyReport,
+    storeDirectory,
+  );
+
+  await Promise.all([
+    markAnalysisProcessing(saved.id, storeDirectory),
+    markAnalysisQueued(saved, saved.id, storeDirectory),
+  ]);
+  const stored = await getAnalysis(saved.id, storeDirectory);
+  assert.equal(stored?.healStatus, "processing");
+  assert.equal(stored?.queueJobId, saved.id);
+});
+
+test("resets a terminal failure so healing can be queued again", async (t) => {
+  const storeDirectory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "snapgis-analysis-retry-"),
+  );
+  t.after(() => fs.rm(storeDirectory, { recursive: true, force: true }));
+  const saved = await saveAnalysis(
+    {
+      fileName: "stored.geojson",
+      originalName: "source.geojson",
+      filePath: "/tmp/source.geojson",
+      size: 12,
+      tolerance: 25,
+    },
+    emptyReport,
+    storeDirectory,
+  );
+  await markAnalysisQueued(saved, saved.id, storeDirectory);
+  await markAnalysisFailed(saved.id, "failed", storeDirectory);
+
+  const reset = await resetAnalysisQueueRequest(saved.id, storeDirectory);
+  assert.equal(reset?.healStatus, "dry-run-complete");
+  assert.equal(reset?.queueJobId, null);
+  assert.equal(reset?.healError, null);
+  assert.equal(reset?.healProgress, 0);
 });
 
 test("rejects invalid IDs instead of resolving arbitrary paths", async () => {

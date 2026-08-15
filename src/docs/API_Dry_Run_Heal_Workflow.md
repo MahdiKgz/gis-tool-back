@@ -138,16 +138,76 @@ is also used as the BullMQ job ID, making repeated requests idempotent.
     "jobId": "6c2d5ee6-9852-4ddd-86db-f62582ef93de",
     "dryRunJobId": "6c2d5ee6-9852-4ddd-86db-f62582ef93de",
     "status": "queued",
+    "progress": 0,
     "queuedAt": "2026-07-25T09:30:00.000Z"
   }
 }
 ```
+
+The analysis manifest is updated before the job is added, preventing a fast
+worker from racing the queued state. Worker events persist `processing`
+progress, terminal completion data, and final failure after retry exhaustion.
+Completed BullMQ jobs may therefore be removed without losing client-visible
+state.
+
+## 3. Track healing
+
+```http
+GET /heal/:jobId
+```
+
+The endpoint returns one of `dry-run-complete`, `queued`, `processing`,
+`completed`, or `failed`, together with numeric progress and lifecycle
+timestamps. Clients can poll this endpoint while the status is queued or
+processing.
+
+Completed responses include a public repair summary and job-scoped links. The
+server-side output path is never exposed:
+
+```json
+{
+  "success": true,
+  "data": {
+    "jobId": "6c2d5ee6-9852-4ddd-86db-f62582ef93de",
+    "status": "completed",
+    "progress": 100,
+    "result": {
+      "repairsApplied": 7,
+      "repairs": {
+        "gapsClosed": 2,
+        "overlapsHealed": 1,
+        "duplicateVerticesRemoved": 4
+      },
+      "output": {
+        "fileName": "cleaned-source.geojson",
+        "previewPath": "/heal/6c2d5ee6-9852-4ddd-86db-f62582ef93de/output",
+        "downloadPath": "/heal/6c2d5ee6-9852-4ddd-86db-f62582ef93de/download"
+      }
+    }
+  }
+}
+```
+
+## 4. Preview and download
+
+```http
+GET /heal/:jobId/output
+GET /heal/:jobId/download
+```
+
+`output` serves the healed GeoJSON inline for map rendering. `download`
+serves the same bytes with an attachment disposition and the cleaned file
+name. Both endpoints require a completed manifest, validate that the stored
+file is inside `uploads/cleaned_files`, and return `410 OUTPUT_FILE_EXPIRED`
+after cleanup removes it.
 
 Possible errors include:
 
 - `400 INVALID_JOB_ID`
 - `404 JOB_NOT_FOUND`
 - `410 SOURCE_FILE_EXPIRED`
+- `409 HEALING_NOT_COMPLETE`
+- `410 OUTPUT_FILE_EXPIRED`
 - `422 INVALID_GIS_FILE`
 
 Uploaded sources, cleaned outputs, and dry-run manifests are removed by the
