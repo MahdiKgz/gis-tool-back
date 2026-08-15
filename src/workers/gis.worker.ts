@@ -8,10 +8,6 @@ import fs from "fs";
 import kinks from "@turf/kinks";
 import unkinkPolygon from "@turf/unkink-polygon";
 import distance from "@turf/distance";
-import nearestPointOnLine from "@turf/nearest-point-on-line";
-import lineIntersect from "@turf/line-intersect";
-import booleanIntersects from "@turf/boolean-intersects";
-import lineSlice from "@turf/line-slice";
 import { point, featureCollection } from "@turf/helpers";
 import area from "@turf/area";
 import bbox from "@turf/bbox";
@@ -32,8 +28,14 @@ import {
 import { processDuplicateVertices } from "../processing/duplicate-vertices";
 import { processGeometryDimensions } from "../processing/geometry-dimensions";
 import { processGeometryTypes } from "../processing/geometry-types";
+import {
+  computeGapToleranceMeters,
+  GAP_TOLERANCE_MULTIPLIER,
+  processGaps,
+} from "../processing/gaps";
 import { processInvalidHoles } from "../processing/invalid-holes";
 import { processInvalidRings } from "../processing/invalid-rings";
+import { processLineTopology } from "../processing/line-topology";
 import { processMultipartIntegrity } from "../processing/multipart-integrity";
 import {
   buildRingClosureReport,
@@ -42,6 +44,10 @@ import {
 import { processRingOrientation } from "../processing/ring-orientation";
 import { canonicalRingSignature } from "../processing/shared/ring-signature";
 import { processSpikes } from "../processing/spikes";
+import {
+  computeSliverAreaThresholdM2,
+  processSlivers,
+} from "../processing/slivers";
 import { processTinyPolygons } from "../processing/tiny-polygons";
 import { processZeroAreaPolygons } from "../processing/zero-area-polygons";
 import { readGisFile } from "../services/gis-file.service";
@@ -51,8 +57,6 @@ const mapshaper = require("mapshaper");
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const MIN_SLIVER_MULTIPLIER = 10;
-const GAP_SNAP_MULTIPLIER = 3;
 const DEFAULT_OVERLAP_THRESHOLD = 0.05;
 
 // Sub-epsilon area guard for @turf/intersect artefacts produced when two
@@ -86,7 +90,7 @@ const DEFAULT_NEAR_DUPLICATE_MAX_OFFSET_M = 0.01; // 1cm
 const DEFAULT_NEAR_DUPLICATE_MIN_IOU = 0.9;
 
 // RBush candidate search for near-duplicates expands the query box by this
-// multiple of the offset tolerance, mirroring the GAP_SNAP_MULTIPLIER
+// multiple of the offset tolerance, mirroring the gap snap multiplier
 // precedent — guards against missing a near-duplicate whose bbox sits just
 // past a tightly-drawn query window.
 const NEAR_DUPLICATE_SEARCH_MARGIN_MULTIPLIER = 3;
@@ -94,18 +98,6 @@ const NEAR_DUPLICATE_SEARCH_MARGIN_MULTIPLIER = 3;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const computeMinSliverAreaM2 = (toleranceMeters: number): number =>
-  Math.pow(toleranceMeters * MIN_SLIVER_MULTIPLIER, 2);
-
-const countSlivers = (features: any[], minAreaM2: number): number =>
-  features.filter((f) => {
-    try {
-      return area(f) < minAreaM2;
-    } catch {
-      return false;
-    }
-  }).length;
-
 const buildIndex = (features: any[]): RBush<any> => {
   const index = new RBush<any>();
   index.load(
@@ -462,17 +454,22 @@ const runMapshaperPipeline = async (
 }> =>
   new Promise((resolve, reject) => {
     const intervalDeg = toleranceMeters / 111320;
-    const minAreaM2 = computeMinSliverAreaM2(toleranceMeters);
+    const minAreaM2 = computeSliverAreaThresholdM2(toleranceMeters);
+    const gapToleranceMeters = computeGapToleranceMeters(toleranceMeters);
 
-    const sliversBefore = countSlivers(geojson.features, minAreaM2);
-    const gapsFound = scanGaps(geojson.features, toleranceMeters);
+    const sliversBefore = processSlivers(geojson, {
+      sliverAreaThresholdM2: minAreaM2,
+    }).report.sliversFound;
+    const gapsFound = processGaps(geojson, {
+      gapToleranceMeters,
+    }).report.gapsFound;
 
     const commands = [
       `-i input.json`,
       `-snap interval=${intervalDeg}`,
       `-clean`,
       `-filter '$.area > ${minAreaM2}' remove-empty`,
-      `-snap interval=${intervalDeg * GAP_SNAP_MULTIPLIER}`,
+      `-snap interval=${intervalDeg * GAP_TOLERANCE_MULTIPLIER}`,
       `-clean`,
       `-o output.json format=geojson`,
     ].join(" ");
@@ -486,255 +483,19 @@ const runMapshaperPipeline = async (
           return reject(new Error("Mapshaper output missing"));
 
         const result = JSON.parse(output["output.json"].toString("utf-8"));
-        const sliversAfter = countSlivers(result.features, minAreaM2);
+        const sliversAfter = processSlivers(result, {
+          sliverAreaThresholdM2: minAreaM2,
+        }).report.sliversFound;
         const sliversRemovedCount = Math.max(0, sliversBefore - sliversAfter);
-        const gapsAfter = scanGaps(result.features, toleranceMeters);
+        const gapsAfter = processGaps(result, {
+          gapToleranceMeters,
+        }).report.gapsFound;
         const gapsClosed = Math.max(0, gapsFound - gapsAfter);
 
         resolve({ result, sliversRemovedCount, gapsFound, gapsClosed });
       },
     );
   });
-
-// ---------------------------------------------------------------------------
-// Overshoot fix
-// ---------------------------------------------------------------------------
-const findClosestIntersectionToEndpoint = (
-  intersections: any,
-  endPt: any,
-  startPt: any,
-  toleranceKm: number,
-): any | null => {
-  let best: any = null;
-  let bestDist = Infinity;
-
-  for (const pt of intersections.features) {
-    const distToEnd = distance(endPt, pt, { units: "kilometers" });
-    const distToStart = distance(startPt, pt, { units: "kilometers" });
-    if (
-      distToEnd <= toleranceKm &&
-      distToEnd < distToStart &&
-      distToEnd < bestDist
-    ) {
-      bestDist = distToEnd;
-      best = pt;
-    }
-  }
-  return best;
-};
-
-// ---------------------------------------------------------------------------
-// MultiLineString flatten / reassemble
-// ---------------------------------------------------------------------------
-const flattenLineFeatures = (
-  features: any[],
-): { flat: any[]; wasMulti: Map<number, boolean> } => {
-  const flat: any[] = [];
-  const wasMulti = new Map<number, boolean>();
-
-  features.forEach((feature, originalIndex) => {
-    wasMulti.set(originalIndex, feature.geometry.type === "MultiLineString");
-
-    if (feature.geometry.type === "MultiLineString") {
-      feature.geometry.coordinates.forEach(
-        (coords: number[][], partIndex: number) => {
-          flat.push({
-            type: "Feature",
-            geometry: { type: "LineString", coordinates: coords },
-            properties: {
-              ...feature.properties,
-              __originalIndex: originalIndex,
-              __partIndex: partIndex,
-            },
-          });
-        },
-      );
-    } else {
-      flat.push({
-        ...feature,
-        properties: {
-          ...feature.properties,
-          __originalIndex: originalIndex,
-          __partIndex: 0,
-        },
-      });
-    }
-  });
-
-  return { flat, wasMulti };
-};
-
-const reassembleMultiLines = (
-  healedFlat: any[],
-  wasMulti: Map<number, boolean>,
-): any[] => {
-  const groups = new Map<number, any[]>();
-
-  for (const feature of healedFlat) {
-    const idx = feature.properties.__originalIndex;
-    if (!groups.has(idx)) groups.set(idx, []);
-    groups.get(idx)!.push(feature);
-  }
-
-  const result: any[] = [];
-
-  groups.forEach((parts, originalIndex) => {
-    const cleanProps = { ...parts[0].properties };
-    delete cleanProps.__originalIndex;
-    delete cleanProps.__partIndex;
-
-    if (wasMulti.get(originalIndex) && parts.length > 1) {
-      result.push({
-        type: "Feature",
-        geometry: {
-          type: "MultiLineString",
-          coordinates: parts
-            .sort((a, b) => a.properties.__partIndex - b.properties.__partIndex)
-            .map((p: any) => p.geometry.coordinates),
-        },
-        properties: cleanProps,
-      });
-    } else {
-      result.push({ ...parts[0], properties: cleanProps });
-    }
-  });
-
-  return result;
-};
-
-// ---------------------------------------------------------------------------
-// Line topology healer — undershoot + overshoot, O(n log n) via RBush
-// ---------------------------------------------------------------------------
-const healLineTopologies = (geojson: any, toleranceKm: number) => {
-  let healedCount = 0;
-  if (geojson.type !== "FeatureCollection") return { geojson, healedCount };
-
-  const lines = geojson.features;
-  const lineIndex = buildIndex(lines);
-
-  for (let i = 0; i < lines.length; i++) {
-    const currentLine = lines[i];
-    let coords = currentLine.geometry.coordinates;
-    if (coords.length < 2) continue;
-
-    const startPt = point(coords[0]);
-    const endPt = point(coords[coords.length - 1]);
-    const offset = toleranceKm / 111.32;
-    const [sLng, sLat] = coords[0];
-    const [eLng, eLat] = coords[coords.length - 1];
-
-    const startCandidates = lineIndex.search({
-      minX: sLng - offset,
-      minY: sLat - offset,
-      maxX: sLng + offset,
-      maxY: sLat + offset,
-    });
-    const endCandidates = lineIndex.search({
-      minX: eLng - offset,
-      minY: eLat - offset,
-      maxX: eLng + offset,
-      maxY: eLat + offset,
-    });
-
-    let minStartDist = Infinity,
-      minEndDist = Infinity;
-    let bestStartSnap: any = null,
-      bestEndSnap: any = null;
-
-    for (const item of startCandidates) {
-      if (item.idx === i) continue;
-      const snap = nearestPointOnLine(lines[item.idx], startPt);
-      const d = distance(startPt, snap, { units: "kilometers" });
-      if (d < minStartDist) {
-        minStartDist = d;
-        bestStartSnap = snap.geometry.coordinates;
-      }
-    }
-    for (const item of endCandidates) {
-      if (item.idx === i) continue;
-      const snap = nearestPointOnLine(lines[item.idx], endPt);
-      const d = distance(endPt, snap, { units: "kilometers" });
-      if (d < minEndDist) {
-        minEndDist = d;
-        bestEndSnap = snap.geometry.coordinates;
-      }
-    }
-
-    let modified = false;
-    if (minStartDist > 0 && minStartDist <= toleranceKm && bestStartSnap) {
-      coords[0] = bestStartSnap;
-      modified = true;
-    }
-    if (minEndDist > 0 && minEndDist <= toleranceKm && bestEndSnap) {
-      coords[coords.length - 1] = bestEndSnap;
-      modified = true;
-    }
-
-    for (const item of endCandidates) {
-      if (item.idx === i) continue;
-      const intersections = lineIntersect(currentLine, lines[item.idx]);
-      if (intersections.features.length === 0) continue;
-
-      const best = findClosestIntersectionToEndpoint(
-        intersections,
-        endPt,
-        startPt,
-        toleranceKm,
-      );
-      if (best) {
-        coords = lineSlice(startPt, best, currentLine).geometry.coordinates;
-        modified = true;
-        break;
-      }
-    }
-
-    if (modified) {
-      currentLine.geometry.coordinates = coords;
-      healedCount++;
-    }
-  }
-
-  return { geojson: featureCollection(lines), healedCount };
-};
-
-// ---------------------------------------------------------------------------
-// Gap scanner — O(n log n) via RBush
-// ---------------------------------------------------------------------------
-const scanGaps = (features: any[], toleranceMeters: number): number => {
-  if (features.length < 2) return 0;
-
-  const index = buildIndex(features);
-  const offsetDeg = (toleranceMeters * GAP_SNAP_MULTIPLIER) / 111320;
-  const counted = new Set<string>();
-  let gapCount = 0;
-
-  for (let i = 0; i < features.length; i++) {
-    const [minX, minY, maxX, maxY] = bbox(features[i]);
-    const candidates = index.search({
-      minX: minX - offsetDeg,
-      minY: minY - offsetDeg,
-      maxX: maxX + offsetDeg,
-      maxY: maxY + offsetDeg,
-    });
-
-    for (const item of candidates) {
-      const j = item.idx;
-      if (j <= i) continue;
-      const pairKey = `${i}:${j}`;
-      if (counted.has(pairKey)) continue;
-      try {
-        if (!booleanIntersects(features[i], features[j])) {
-          gapCount++;
-          counted.add(pairKey);
-        }
-      } catch {
-        /* degenerate — skip */
-      }
-    }
-  }
-
-  return gapCount;
-};
 
 // ---------------------------------------------------------------------------
 // Polygon overlap detection & conditional healing — MULTI-PASS
@@ -1011,9 +772,8 @@ export const gisWorker = new Worker(
     } = job.data;
 
     const usertolerance = tolerance || 25;
-    const lineToleranceKm = usertolerance / 1_000_000;
     const polyToleranceMeters = usertolerance / 1000;
-    const minSliverAreaM2 = computeMinSliverAreaM2(polyToleranceMeters);
+    const minSliverAreaM2 = computeSliverAreaThresholdM2(polyToleranceMeters);
     const effectiveOverlapRatio =
       overlapThresholdRatio ?? DEFAULT_OVERLAP_THRESHOLD;
     const effectiveNearDuplicateMaxOffsetMeters =
@@ -1256,6 +1016,14 @@ export const gisWorker = new Worker(
       );
     }
 
+    // Slivers follow the legacy worker's tolerance-derived feature-area rule.
+    // They are reported before GEO-008 quarantines tiny polygons; destructive
+    // removal is intentionally left to manual review for input features.
+    const inputSliverValidationReport = processSlivers(geojson, {
+      sliverAreaThresholdM2: minSliverAreaM2,
+    }).report;
+    const inputSliverCount = inputSliverValidationReport.sliversFound;
+
     // GEO-008 distinguishes small positive-area components from GEO-007's
     // exact-zero degeneracy and reports them without destructive removal.
     const tinyPolygonResult = processTinyPolygons(geojson, {
@@ -1302,7 +1070,7 @@ export const gisWorker = new Worker(
 
     // [DUPLICATE DETECTION] Runs immediately after loading polygon features,
     // before overlap detection or any other topology processing. Everything
-    // downstream (sliver pre-count, overlap healing) reads the deduplicated
+    // downstream overlap healing reads the deduplicated
     // array so an auto-removed exact duplicate is never double-processed.
     let duplicatesFound = 0;
     let exactDuplicates = 0;
@@ -1332,30 +1100,24 @@ export const gisWorker = new Worker(
 
     await job.updateProgress(30);
 
-    let healedLineCount = 0;
-    let processedLineFeatures = lineFeatures;
-
-    if (lineFeatures.length > 0) {
-      const { flat, wasMulti } = flattenLineFeatures(lineFeatures);
-      const healed = healLineTopologies(
-        featureCollection(flat),
-        lineToleranceKm,
-      );
-      healedLineCount = healed.healedCount;
-      processedLineFeatures = reassembleMultiLines(
-        healed.geojson.features,
-        wasMulti,
-      );
-    }
-
-    const processedLines = featureCollection(processedLineFeatures);
+    const lineTopologyResult = processLineTopology(
+      featureCollection(lineFeatures),
+      { toleranceMeters: polyToleranceMeters },
+    );
+    const undershootValidationReport =
+      lineTopologyResult.reports.undershoots;
+    const overshootValidationReport = lineTopologyResult.reports.overshoots;
+    const healedLineCount = new Set(
+      [
+        ...undershootValidationReport.issues,
+        ...overshootValidationReport.issues,
+      ]
+        .filter((issue) => issue.status === "Repaired")
+        .map((issue) => issue.featureIndex),
+    ).size;
+    const processedLines = lineTopologyResult.geojson;
 
     await job.updateProgress(40);
-
-    const inputSliverCount = countSlivers(
-      polyFeaturesAfterDuplicates,
-      minSliverAreaM2,
-    );
 
     // Overlap healing must run before kink detection — overlapping polygons
     // can produce false kink reports.
@@ -1457,8 +1219,15 @@ export const gisWorker = new Worker(
       success: true,
       kinksFound: kinkCount,
       healedUndershootOvershoot: healedLineCount,
+      undershootsFound: undershootValidationReport.undershootsFound,
+      undershootsRepaired: undershootValidationReport.undershootsRepaired,
+      undershootValidationReport,
+      overshootsFound: overshootValidationReport.overshootsFound,
+      overshootsRepaired: overshootValidationReport.overshootsRepaired,
+      overshootValidationReport,
       inputSliverCount,
       sliversRemovedCount,
+      inputSliverValidationReport,
       gapsFound,
       gapsClosed,
       overlapsHealed,

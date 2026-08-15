@@ -28,7 +28,7 @@ Successful uploads return `201 Created`:
       "valid": false,
       "summary": {
         "featuresScanned": 4,
-        "checksRun": 12,
+        "checksRun": 17,
         "issuesFound": 3,
         "issueGroups": 1,
         "affectedFeatures": 2,
@@ -86,6 +86,22 @@ feature index and ID, geometry type, geometry-collection path, and applicable
 coordinate or polygon paths. `disposition` indicates whether the healing
 pipeline has a conservative automatic repair or whether manual review is
 required.
+
+Relational findings such as polygon gaps and line endpoint topology also
+include `relatedFeatureIndex`, `relatedFeatureId`, and related coordinate or
+polygon paths. Both sides are included in the issue group's affected feature
+indexes and in `affectedFeatureCollection`.
+
+Dry-run includes these topology checks:
+
+- `gaps` / `POLYGON_GAP`
+- `slivers` / `SLIVER_POLYGON`
+- `undershoots` / `LINE_UNDERSHOOT`
+- `overshoots` / `LINE_OVERSHOOT`
+
+The applied metric thresholds are exposed as `gapToleranceMeters`,
+`sliverAreaThresholdM2`, and `lineTopologyToleranceMeters` under
+`report.appliedOptions`.
 
 Use `report.issueGroups` for the frontend error list. It contains one item per
 `check` and `code` combination, regardless of whether the same problem affects

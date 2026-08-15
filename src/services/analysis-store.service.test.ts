@@ -30,6 +30,9 @@ const emptyReport: DryRunReport = {
   appliedOptions: {
     toleranceMillimeters: 25,
     tinyAreaThresholdM2: 0.0625,
+    sliverAreaThresholdM2: 0.0625,
+    gapToleranceMeters: 0.075,
+    lineTopologyToleranceMeters: 0.025,
     spikeBaseToleranceMeters: 0.025,
     maxCoordinateDecimalPlaces: 9,
   },

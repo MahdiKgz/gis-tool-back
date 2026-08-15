@@ -24,10 +24,10 @@
 -   [x] Self Intersection Repair
 -   [x] Polygon Overlap Detection
 -   [x] Multi-pass Overlap Repair
--   [x] Gap Detection
--   [x] Sliver Detection
--   [x] Undershoot Repair
--   [x] Overshoot Repair
+-   [x] Gap Detection, Dry-Run Reporting, and Repair Integration
+-   [x] Sliver Detection and Dry-Run Reporting
+-   [x] Undershoot Detection, Dry-Run Reporting, and Repair
+-   [x] Overshoot Detection, Dry-Run Reporting, and Repair
 -   [x] Duplicate Polygon Detection
 -   [x] Duplicate Vertex Detection and Safe Repair
 -   [x] Invalid Ring Detection and Safe Repair

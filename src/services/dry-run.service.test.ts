@@ -28,7 +28,7 @@ test("returns a clean report for valid geometry without mutating it", () => {
   assert.equal(report.mode, "dry-run");
   assert.equal(report.valid, true);
   assert.equal(report.summary.featuresScanned, 1);
-  assert.equal(report.summary.checksRun, 13);
+  assert.equal(report.summary.checksRun, 17);
   assert.equal(report.summary.issuesFound, 0);
   assert.equal(report.summary.issueGroups, 0);
   assert.deepEqual(report.issueGroups, []);
@@ -207,5 +207,74 @@ test("reports self-intersection before its secondary area consequences", () => {
     coordinates: [51.465, 35.705],
   });
   assert.equal(issue.disposition, "ManualReview");
-  assert.equal(report.summary.checksRun, 13);
+  assert.equal(report.summary.checksRun, 17);
+});
+
+test("reports gaps, slivers, undershoots, and overshoots in one dry run", async () => {
+  const fixturePath = path.resolve(
+    "src/test-data/geojson/dry-run-gap-sliver-line-topology.geojson",
+  );
+  const before = fs.readFileSync(fixturePath);
+  const report = await analyzeGisFile(
+    fixturePath,
+    "dry-run-gap-sliver-line-topology.geojson",
+    { toleranceMillimeters: 30 },
+  );
+
+  const requestedIssues = new Map(
+    report.issues
+      .filter((issue) =>
+        [
+          "POLYGON_GAP",
+          "SLIVER_POLYGON",
+          "LINE_UNDERSHOOT",
+          "LINE_OVERSHOOT",
+        ].includes(issue.code),
+      )
+      .map((issue) => [issue.code, issue]),
+  );
+  assert.deepEqual(
+    [...requestedIssues.keys()].sort(),
+    [
+      "LINE_OVERSHOOT",
+      "LINE_UNDERSHOOT",
+      "POLYGON_GAP",
+      "SLIVER_POLYGON",
+    ],
+  );
+  assert.equal(
+    requestedIssues.get("SLIVER_POLYGON")?.disposition,
+    "ManualReview",
+  );
+  assert.ok(
+    ["POLYGON_GAP", "LINE_UNDERSHOOT", "LINE_OVERSHOOT"].every(
+      (code) =>
+        requestedIssues.get(code)?.disposition === "AutoRepairAvailable",
+    ),
+  );
+  const gap = requestedIssues.get("POLYGON_GAP")!;
+  assert.equal(gap.featureId, "gap-west");
+  assert.equal(gap.relatedFeatureId, "gap-east");
+  assert.equal(gap.relatedFeatureIndex, 1);
+  assert.ok(gap.location.coordinatePath);
+  assert.ok(gap.location.relatedCoordinatePath);
+  assert.deepEqual(gap.location.relatedGeometryCollectionPath, []);
+
+  const gapGroup = report.issueGroups.find(
+    (group) => group.code === "POLYGON_GAP",
+  );
+  assert.ok(gapGroup);
+  assert.deepEqual(gapGroup.affectedFeatureIndexes, [0, 1]);
+  assert.deepEqual(gapGroup.affectedFeatureIds, ["gap-west", "gap-east"]);
+  assert.deepEqual(
+    report.affectedFeatureCollection.features.map(
+      (feature) => feature.snapgisFeatureIndex,
+    ),
+    [0, 1, 2, 3, 4, 5, 6],
+  );
+  assert.equal(report.summary.checksRun, 17);
+  assert.equal(report.appliedOptions.sliverAreaThresholdM2, 0.09);
+  assert.equal(report.appliedOptions.gapToleranceMeters, 0.09);
+  assert.equal(report.appliedOptions.lineTopologyToleranceMeters, 0.03);
+  assert.deepEqual(fs.readFileSync(fixturePath), before);
 });

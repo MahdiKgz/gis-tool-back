@@ -2,8 +2,13 @@ import { processCoordinatePrecision } from "../processing/coordinate-precision";
 import { processDuplicateVertices } from "../processing/duplicate-vertices";
 import { processGeometryDimensions } from "../processing/geometry-dimensions";
 import { processGeometryTypes } from "../processing/geometry-types";
+import {
+  computeGapToleranceMeters,
+  processGaps,
+} from "../processing/gaps";
 import { processInvalidHoles } from "../processing/invalid-holes";
 import { processInvalidRings } from "../processing/invalid-rings";
+import { processLineTopology } from "../processing/line-topology";
 import { processMultipartIntegrity } from "../processing/multipart-integrity";
 import { processRingClosure } from "../processing/ring-closure";
 import { processRingOrientation } from "../processing/ring-orientation";
@@ -13,6 +18,10 @@ import {
   GeoJsonFeatureLike,
 } from "../processing/shared/geojson";
 import { processSpikes } from "../processing/spikes";
+import {
+  computeSliverAreaThresholdM2,
+  processSlivers,
+} from "../processing/slivers";
 import { processTinyPolygons } from "../processing/tiny-polygons";
 import { processZeroAreaPolygons } from "../processing/zero-area-polygons";
 import { readGisFile } from "./gis-file.service";
@@ -27,9 +36,12 @@ export interface DryRunIssue {
   code: string;
   featureIndex: number;
   featureId: string | number | null;
+  relatedFeatureIndex: number | null;
+  relatedFeatureId: string | number | null;
   geometryType: string | null;
   location: {
     geometryCollectionPath: number[];
+    relatedGeometryCollectionPath: number[];
     coordinatePath: number[] | null;
     relatedCoordinatePath: number[] | null;
     polygonPath: number[] | null;
@@ -83,6 +95,9 @@ export interface DryRunReport {
   appliedOptions: {
     toleranceMillimeters: number;
     tinyAreaThresholdM2: number;
+    sliverAreaThresholdM2: number;
+    gapToleranceMeters: number;
+    lineTopologyToleranceMeters: number;
     spikeBaseToleranceMeters: number;
     maxCoordinateDecimalPlaces: number;
   };
@@ -90,11 +105,11 @@ export interface DryRunReport {
   checks: Record<string, ValidationReport>;
 }
 
-const MIN_SLIVER_MULTIPLIER = 10;
 const DEFAULT_MAX_COORDINATE_DECIMAL_PLACES = 9;
 
 const emptyLocation = {
   geometryCollectionPath: [] as number[],
+  relatedGeometryCollectionPath: [] as number[],
   coordinatePath: null,
   relatedCoordinatePath: null,
   polygonPath: null,
@@ -124,6 +139,15 @@ const normalizeIssue = (
     typeof issue.featureId === "number"
       ? issue.featureId
       : null;
+  const relatedFeatureIndex =
+    typeof issue.relatedFeatureIndex === "number"
+      ? issue.relatedFeatureIndex
+      : null;
+  const relatedFeatureId =
+    typeof issue.relatedFeatureId === "string" ||
+    typeof issue.relatedFeatureId === "number"
+      ? issue.relatedFeatureId
+      : null;
   const geometryType =
     typeof issue.geometryType === "string" ? issue.geometryType : null;
   const code = typeof issue.code === "string" ? issue.code : "UNKNOWN_ISSUE";
@@ -133,11 +157,15 @@ const normalizeIssue = (
     code,
     featureIndex,
     featureId,
+    relatedFeatureIndex,
+    relatedFeatureId,
     geometryType,
     location: {
       ...emptyLocation,
       geometryCollectionPath:
         numericPath(issue, "geometryCollectionPath") ?? [],
+      relatedGeometryCollectionPath:
+        numericPath(issue, "relatedGeometryCollectionPath") ?? [],
       coordinatePath: numericPath(issue, "coordinatePath"),
       relatedCoordinatePath: numericPath(issue, "relatedCoordinatePath"),
       polygonPath: numericPath(issue, "polygonPath"),
@@ -189,6 +217,15 @@ const groupIssues = (issues: DryRunIssue[]): DryRunIssueGroup[] => {
     group.issueCount++;
     if (issue.featureIndex >= 0) group.featureIndexes.add(issue.featureIndex);
     if (issue.featureId !== null) group.featureIds.add(issue.featureId);
+    if (
+      issue.relatedFeatureIndex !== null &&
+      issue.relatedFeatureIndex >= 0
+    ) {
+      group.featureIndexes.add(issue.relatedFeatureIndex);
+    }
+    if (issue.relatedFeatureId !== null) {
+      group.featureIds.add(issue.relatedFeatureId);
+    }
     if (issue.geometryType !== null) group.geometryTypes.add(issue.geometryType);
     group.dispositions.add(issue.disposition);
     groups.set(groupId, group);
@@ -221,8 +258,8 @@ export const analyzeGeoJson = (
     options.maxCoordinateDecimalPlaces ??
     DEFAULT_MAX_COORDINATE_DECIMAL_PLACES;
   const toleranceMeters = options.toleranceMillimeters / 1000;
-  const tinyAreaThresholdM2 =
-    (toleranceMeters * MIN_SLIVER_MULTIPLIER) ** 2;
+  const tinyAreaThresholdM2 = computeSliverAreaThresholdM2(toleranceMeters);
+  const gapToleranceMeters = computeGapToleranceMeters(toleranceMeters);
   const geojson = input as FeatureCollectionLike;
   const checks: Record<string, ValidationReport> = {};
 
@@ -233,6 +270,9 @@ export const analyzeGeoJson = (
     return buildReport(geojson, checks, {
       toleranceMillimeters: options.toleranceMillimeters,
       tinyAreaThresholdM2,
+      sliverAreaThresholdM2: tinyAreaThresholdM2,
+      gapToleranceMeters,
+      lineTopologyToleranceMeters: toleranceMeters,
       spikeBaseToleranceMeters: toleranceMeters,
       maxCoordinateDecimalPlaces,
     });
@@ -275,34 +315,63 @@ export const analyzeGeoJson = (
   const duplicateVertexReport =
     processDuplicateVertices(topologyInput, false).report;
   checks.duplicateVertices = duplicateVertexReport;
+  const lineTopologyReports = processLineTopology(
+    topologyInput,
+    { toleranceMeters },
+    false,
+  ).reports;
+  checks.undershoots = lineTopologyReports.undershoots;
+  checks.overshoots = lineTopologyReports.overshoots;
 
   const polygonUnsafe = new Set([
     ...structurallyInvalid,
     ...invalidRingReport.unresolvedFeatureIndexes,
   ]);
   const polygonInput = createQuarantinedView(geojson, polygonUnsafe);
-  checks.selfIntersections =
+  const selfIntersectionReport =
     processSelfIntersections(polygonInput).report;
+  checks.selfIntersections = selfIntersectionReport;
   checks.ringOrientation =
     processRingOrientation(polygonInput, false).report;
-  checks.invalidHoles = processInvalidHoles(
+  const invalidHoleReport = processInvalidHoles(
     polygonInput,
     { tinyHoleAreaM2: tinyAreaThresholdM2 },
     false,
   ).report;
-  checks.spikes = processSpikes(
+  checks.invalidHoles = invalidHoleReport;
+  const spikeReport = processSpikes(
     polygonInput,
     { baseToleranceMeters: toleranceMeters },
     false,
   ).report;
-  checks.zeroAreaPolygons = processZeroAreaPolygons(polygonInput).report;
+  checks.spikes = spikeReport;
+  const zeroAreaPolygonReport = processZeroAreaPolygons(polygonInput).report;
+  checks.zeroAreaPolygons = zeroAreaPolygonReport;
   checks.tinyPolygons = processTinyPolygons(polygonInput, {
     tinyPolygonAreaM2: tinyAreaThresholdM2,
   }).report;
+  checks.slivers = processSlivers(polygonInput, {
+    sliverAreaThresholdM2: tinyAreaThresholdM2,
+  }).report;
+
+  const gapUnsafe = new Set([
+    ...polygonUnsafe,
+    ...(selfIntersectionReport.unresolvedFeatureIndexes ?? []),
+    ...(invalidHoleReport.unresolvedFeatureIndexes ?? []),
+    ...(spikeReport.unresolvedFeatureIndexes ?? []),
+    ...(zeroAreaPolygonReport.unresolvedFeatureIndexes ?? []),
+  ]);
+  checks.gaps = processGaps(
+    createQuarantinedView(geojson, gapUnsafe),
+    { gapToleranceMeters },
+  ).report;
 
   return buildReport(geojson, checks, {
     toleranceMillimeters: options.toleranceMillimeters,
     tinyAreaThresholdM2,
+    sliverAreaThresholdM2: tinyAreaThresholdM2,
+    gapToleranceMeters,
+    lineTopologyToleranceMeters: toleranceMeters,
     spikeBaseToleranceMeters: toleranceMeters,
     maxCoordinateDecimalPlaces,
   });
@@ -319,7 +388,10 @@ const buildReport = (
   const issueGroups = groupIssues(issues);
   const affectedFeatures = new Set(
     issues
-      .map((issue) => issue.featureIndex)
+      .flatMap((issue) => [
+        issue.featureIndex,
+        issue.relatedFeatureIndex ?? -1,
+      ])
       .filter((featureIndex) => featureIndex >= 0),
   );
   const autoRepairableIssues = issues.filter(

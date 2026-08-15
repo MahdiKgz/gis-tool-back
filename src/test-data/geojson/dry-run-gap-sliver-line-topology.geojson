@@ -1,0 +1,68 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "gap-west",
+      "properties": { "caseId": "POLYGON_GAP" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[0, 0], [0.001, 0], [0.001, 0.001], [0, 0.001], [0, 0]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "gap-east",
+      "properties": { "caseId": "POLYGON_GAP" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[0.0010005, 0], [0.0020005, 0], [0.0020005, 0.001], [0.0010005, 0.001], [0.0010005, 0]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "sliver",
+      "properties": { "caseId": "SLIVER_POLYGON" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[0.01, 0], [0.010001, 0], [0.010001, 0.000001], [0.01, 0.000001], [0.01, 0]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "undershoot",
+      "properties": { "caseId": "LINE_UNDERSHOOT" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[0.02, 0], [0.0209998, 0]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "undershoot-target",
+      "properties": { "caseId": "LINE_UNDERSHOOT_TARGET" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[0.021, -0.001], [0.021, 0.001]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "overshoot",
+      "properties": { "caseId": "LINE_OVERSHOOT" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[0.03, 0], [0.0310002, 0]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "overshoot-target",
+      "properties": { "caseId": "LINE_OVERSHOOT_TARGET" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[0.031, -0.001], [0.031, 0.001]]
+      }
+    }
+  ]
+}
