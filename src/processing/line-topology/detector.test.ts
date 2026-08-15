@@ -56,6 +56,58 @@ test("does not report an endpoint that already connects to another line", () => 
   assert.deepEqual(result.overshoots, []);
 });
 
+test("detects directional under- and overshoots against polygon boundaries", () => {
+  const polygon = (id: string, coordinates: number[][]) => ({
+    type: "Feature",
+    id,
+    properties: {},
+    geometry: { type: "Polygon", coordinates: [coordinates] },
+  });
+  const result = detectLineTopology(
+    {
+      type: "FeatureCollection",
+      features: [
+        polygon("P-101", [
+          [51.38, 35.68],
+          [51.382, 35.68],
+          [51.382, 35.682],
+          [51.38, 35.682],
+          [51.38, 35.68],
+        ]),
+        polygon("P-103", [
+          [51.38, 35.6815],
+          [51.382, 35.6815],
+          [51.382, 35.6835],
+          [51.38, 35.6835],
+          [51.38, 35.6815],
+        ]),
+        line("R-201", [[51.378, 35.681], [51.3817, 35.681]]),
+        line("R-202", [[51.378, 35.683], [51.3825, 35.683]]),
+      ],
+    },
+    { toleranceMeters: 0.025 },
+  );
+
+  assert.equal(result.undershoots.length, 1);
+  assert.equal(result.overshoots.length, 1);
+  const undershoot = result.undershoots[0]!;
+  assert.equal(undershoot.featureId, "R-201");
+  assert.equal(undershoot.relatedFeatureId, "P-101");
+  assert.equal(undershoot.relatedTargetKind, "PolygonBoundary");
+  assert.equal(undershoot.detectionMode, "DirectionalBoundaryPattern");
+  assert.ok(undershoot.distanceMeters > 27 && undershoot.distanceMeters < 28);
+  assert.equal(undershoot.repairable, false);
+  const overshoot = result.overshoots[0]!;
+  assert.equal(overshoot.featureId, "R-202");
+  assert.equal(overshoot.relatedFeatureId, "P-103");
+  assert.equal(overshoot.relatedTargetKind, "PolygonBoundary");
+  assert.ok(
+    overshoot.overrunDistanceMeters > 45 &&
+      overshoot.overrunDistanceMeters < 46,
+  );
+  assert.equal(overshoot.repairable, false);
+});
+
 test("does not classify a crossing at the opposite endpoint as repairable overshoot", () => {
   const result = detectLineTopology(
     {

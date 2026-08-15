@@ -15,19 +15,21 @@ measures:
 - both shoulder-to-tip leg lengths; and
 - the tip angle using the triangle side lengths.
 
-A vertex is a spike only when its shoulder width is within the configured
-metric tolerance, its tip angle is at most 10 degrees by default, and each
-leg is at least three times the shoulder width. These independent gates avoid
-classifying ordinary sharp corners or densely sampled curves as spikes.
+A vertex is a spike when its tip angle is at most 10 degrees by default and
+each leg is at least three times the shoulder width. These scale-independent
+shape gates avoid classifying ordinary sharp corners or densely sampled
+curves. The configured shoulder-width tolerance determines repair
+eligibility, not whether the anomaly is visible in validation output.
 
 Detection is linear in coordinate count and preserves complete positions,
 including optional Z or M values.
 
 ## Repair policy
 
-Detected spikes are high-confidence local backtracks. Their tip is removed
-when the target and both neighboring positions still match the detection
-snapshot.
+Detected spikes whose shoulder width is inside `baseToleranceMeters` are
+high-confidence local backtracks. Their tip is removed when the target and
+both neighboring positions still match the detection snapshot. Wider
+shape-matched spikes are reported for manual review and never removed.
 
 Line repairs must retain at least two coordinates. Ring repairs must retain
 closure, at least three distinct vertices, determinate unchanged orientation,

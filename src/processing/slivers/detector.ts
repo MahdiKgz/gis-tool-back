@@ -1,5 +1,8 @@
 import area from "@turf/area";
+import { polygon } from "@turf/helpers";
 import { getFeatureId } from "../shared/feature-id";
+import { visitPolygonComponents } from "../shared/polygon-components";
+import { distanceMetersBetweenPositions } from "../shared/spatial-segments";
 import {
   FeatureCollectionLike,
   SliverDetectionResult,
@@ -7,6 +10,7 @@ import {
 } from "./types";
 
 export const MIN_SLIVER_MULTIPLIER = 10;
+export const DEFAULT_MIN_SLIVER_COMPACTNESS = 0.1;
 
 export const computeSliverAreaThresholdM2 = (
   toleranceMeters: number,
@@ -24,6 +28,17 @@ export const detectSlivers = (
       "sliverAreaThresholdM2 must be a finite non-negative number",
     );
   }
+  const minCompactness =
+    options.minCompactness ?? DEFAULT_MIN_SLIVER_COMPACTNESS;
+  if (
+    !Number.isFinite(minCompactness) ||
+    minCompactness < 0 ||
+    minCompactness >= 1
+  ) {
+    throw new RangeError(
+      "minCompactness must be finite, non-negative, and below 1",
+    );
+  }
   if (geojson.type !== "FeatureCollection" || !Array.isArray(geojson.features)) {
     return { polygonFeaturesScanned: 0, findings: [] };
   }
@@ -31,33 +46,64 @@ export const detectSlivers = (
   let polygonFeaturesScanned = 0;
   const findings: SliverDetectionResult["findings"] = [];
   geojson.features.forEach((feature, featureIndex) => {
-    const geometryType = feature.geometry?.type;
-    if (geometryType !== "Polygon" && geometryType !== "MultiPolygon") return;
-    polygonFeaturesScanned++;
-
-    let areaM2: number;
-    try {
-      areaM2 = area(feature as any);
-    } catch {
-      return;
-    }
-    if (
-      !Number.isFinite(areaM2) ||
-      areaM2 <= 0 ||
-      areaM2 >= options.sliverAreaThresholdM2
-    ) {
-      return;
-    }
-    findings.push({
-      code: "SLIVER_POLYGON",
-      featureIndex,
-      featureId: getFeatureId(feature),
-      geometryType,
-      geometryCollectionPath: [],
-      areaM2,
-      thresholdM2: options.sliverAreaThresholdM2,
-      repairable: false,
+    let featureHasPolygon = false;
+    visitPolygonComponents(feature.geometry, (component) => {
+      featureHasPolygon = true;
+      try {
+        const componentFeature = polygon(component.coordinates as any);
+        const areaM2 = area(componentFeature);
+        const perimeterMeters = component.coordinates.reduce(
+          (total, ring) =>
+            total +
+            ring.slice(0, -1).reduce(
+              (ringTotal, start, segmentIndex) =>
+                ringTotal +
+                distanceMetersBetweenPositions(
+                  start,
+                  ring[segmentIndex + 1]!,
+                ),
+              0,
+            ),
+          0,
+        );
+        if (
+          !Number.isFinite(areaM2) ||
+          areaM2 <= 0 ||
+          !Number.isFinite(perimeterMeters) ||
+          perimeterMeters <= 0
+        ) {
+          return;
+        }
+        const compactness =
+          (4 * Math.PI * areaM2) / perimeterMeters ** 2;
+        const detectionReasons: Array<"Area" | "Compactness"> = [];
+        if (areaM2 < options.sliverAreaThresholdM2) {
+          detectionReasons.push("Area");
+        }
+        if (compactness < minCompactness) {
+          detectionReasons.push("Compactness");
+        }
+        if (detectionReasons.length === 0) return;
+        findings.push({
+          code: "SLIVER_POLYGON",
+          featureIndex,
+          featureId: getFeatureId(feature),
+          geometryType: component.geometryType,
+          geometryCollectionPath: [...component.geometryCollectionPath],
+          polygonPath: [...component.polygonPath],
+          areaM2,
+          perimeterMeters,
+          compactness,
+          detectionReasons,
+          thresholdM2: options.sliverAreaThresholdM2,
+          minCompactness,
+          repairable: false,
+        });
+      } catch {
+        // Earlier validation stages own malformed polygon reporting.
+      }
     });
+    if (featureHasPolygon) polygonFeaturesScanned++;
   });
 
   return { polygonFeaturesScanned, findings };

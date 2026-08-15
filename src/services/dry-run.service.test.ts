@@ -28,7 +28,7 @@ test("returns a clean report for valid geometry without mutating it", () => {
   assert.equal(report.mode, "dry-run");
   assert.equal(report.valid, true);
   assert.equal(report.summary.featuresScanned, 1);
-  assert.equal(report.summary.checksRun, 17);
+  assert.equal(report.summary.checksRun, 18);
   assert.equal(report.summary.issuesFound, 0);
   assert.equal(report.summary.issueGroups, 0);
   assert.deepEqual(report.issueGroups, []);
@@ -207,7 +207,7 @@ test("reports self-intersection before its secondary area consequences", () => {
     coordinates: [51.465, 35.705],
   });
   assert.equal(issue.disposition, "ManualReview");
-  assert.equal(report.summary.checksRun, 17);
+  assert.equal(report.summary.checksRun, 18);
 });
 
 test("reports gaps, slivers, undershoots, and overshoots in one dry run", async () => {
@@ -272,9 +272,56 @@ test("reports gaps, slivers, undershoots, and overshoots in one dry run", async 
     ),
     [0, 1, 2, 3, 4, 5, 6],
   );
-  assert.equal(report.summary.checksRun, 17);
+  assert.equal(report.summary.checksRun, 18);
   assert.equal(report.appliedOptions.sliverAreaThresholdM2, 0.09);
   assert.equal(report.appliedOptions.gapToleranceMeters, 0.09);
   assert.equal(report.appliedOptions.lineTopologyToleranceMeters, 0.03);
+  assert.deepEqual(fs.readFileSync(fixturePath), before);
+});
+
+test("detects every declared cadastral topology scenario at 25 mm", async () => {
+  const fixturePath = path.resolve(
+    "src/test-data/geojson/cadastral-topology-errors-sample.geojson",
+  );
+  const before = fs.readFileSync(fixturePath);
+  const report = await analyzeGisFile(
+    fixturePath,
+    "cadastral-topology-errors-sample.geojson",
+    { toleranceMillimeters: 25 },
+  );
+
+  const expectedFeatureByCode = new Map<string, number>([
+    ["POLYGON_GAP", 1],
+    ["POLYGON_OVERLAP", 1],
+    ["SLIVER_POLYGON", 4],
+    ["SELF_INTERSECTION", 5],
+    ["SPIKE", 6],
+    ["INCORRECT_RING_ORIENTATION", 7],
+    ["LINE_UNDERSHOOT", 8],
+    ["LINE_OVERSHOOT", 9],
+  ]);
+  for (const [code, featureId] of expectedFeatureByCode) {
+    const matching = report.issues.filter(
+      (issue) =>
+        issue.code === code &&
+        (issue.featureId === featureId || issue.relatedFeatureId === featureId),
+    );
+    assert.ok(matching.length > 0, `${code} should affect feature ${featureId}`);
+  }
+
+  const inferredCodes = [
+    "POLYGON_GAP",
+    "SLIVER_POLYGON",
+    "SPIKE",
+    "LINE_UNDERSHOOT",
+    "LINE_OVERSHOOT",
+  ];
+  for (const code of inferredCodes) {
+    const issue = report.issues.find((candidate) => candidate.code === code);
+    assert.ok(issue);
+    assert.equal(issue.disposition, "ManualReview");
+  }
+  assert.equal(report.checks.overlaps?.valid, false);
+  assert.equal(report.summary.checksRun, 18);
   assert.deepEqual(fs.readFileSync(fixturePath), before);
 });

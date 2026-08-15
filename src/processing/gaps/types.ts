@@ -3,6 +3,10 @@ import { FeatureCollectionLike } from "../shared/geojson";
 
 export interface GapOptions {
   gapToleranceMeters: number;
+  maxInferredGapWidthMeters?: number;
+  maxGapWidthToSharedBoundaryRatio?: number;
+  minSharedBoundaryRatio?: number;
+  maxParallelAngleDegrees?: number;
 }
 
 export interface GapFinding {
@@ -23,7 +27,11 @@ export interface GapFinding {
   relatedNearestPosition: Position;
   distanceMeters: number;
   toleranceMeters: number;
-  repairable: true;
+  detectionMode: "Tolerance" | "SharedBoundaryPattern";
+  sharedBoundaryLengthMeters: number | null;
+  sharedBoundaryRatio: number | null;
+  gapWidthToSharedBoundaryRatio: number | null;
+  repairable: boolean;
 }
 
 export interface GapDetectionResult {
@@ -43,7 +51,7 @@ export interface GapValidationReport {
   issues: Array<
     GapFinding & {
       status: "Unresolved";
-      recommendedAction: "AutoRepair";
+      recommendedAction: "AutoRepair" | "ManualReview";
     }
   >;
 }

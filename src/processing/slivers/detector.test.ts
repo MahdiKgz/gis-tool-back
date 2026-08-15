@@ -53,6 +53,30 @@ test("derives the same sliver threshold used by healing", () => {
   assert.equal(computeSliverAreaThresholdM2(0.03), 0.09);
 });
 
+test("detects a long narrow polygon by compactness independent of area", () => {
+  const result = detectSlivers(
+    {
+      type: "FeatureCollection",
+      features: [
+        polygonFeature("narrow", [
+          [51.3842, 35.68],
+          [51.38425, 35.68],
+          [51.38425, 35.682],
+          [51.3842, 35.682],
+          [51.3842, 35.68],
+        ]),
+      ],
+    },
+    { sliverAreaThresholdM2: 0.0625 },
+  );
+
+  assert.equal(result.findings.length, 1);
+  const finding = result.findings[0]!;
+  assert.ok(finding.areaM2 > 1_000);
+  assert.ok(finding.compactness < 0.1);
+  assert.deepEqual(finding.detectionReasons, ["Compactness"]);
+});
+
 test("rejects invalid sliver thresholds", () => {
   assert.throws(
     () =>

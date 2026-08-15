@@ -3,6 +3,8 @@ import { FeatureCollectionLike } from "../shared/geojson";
 
 export interface LineTopologyOptions {
   toleranceMeters: number;
+  maxInferredDistanceMeters?: number;
+  maxInferredDistanceToLineLengthRatio?: number;
 }
 
 interface LineEndpointFinding {
@@ -16,8 +18,11 @@ interface LineEndpointFinding {
   relatedGeometryCollectionPath: number[];
   coordinateRootPath: number[];
   relatedCoordinateRootPath: number[];
+  relatedPolygonPath: number[] | null;
   coordinatePath: number[];
   relatedCoordinatePath: number[];
+  relatedTargetKind: "Line" | "PolygonBoundary";
+  detectionMode: "Tolerance" | "DirectionalBoundaryPattern";
   endpoint: "start" | "end";
   endpointPosition: Position;
   targetPosition: Position;

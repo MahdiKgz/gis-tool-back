@@ -44,6 +44,45 @@ test("detects and locates a real polygon gap within tolerance", () => {
   assert.deepEqual(report.unresolvedFeatureIndexes, [0, 1]);
 });
 
+test("reports a narrow shared-boundary gap beyond repair tolerance", () => {
+  const detection = detectGaps(
+    {
+      type: "FeatureCollection",
+      features: [
+        square(51.38, 35.68, 0.002, "west"),
+        square(51.3822, 35.68, 0.002, "east"),
+      ],
+    },
+    { gapToleranceMeters: 0.075 },
+  );
+
+  assert.equal(detection.findings.length, 1);
+  const finding = detection.findings[0]!;
+  assert.equal(finding.detectionMode, "SharedBoundaryPattern");
+  assert.ok(finding.distanceMeters > 18 && finding.distanceMeters < 19);
+  assert.ok(finding.sharedBoundaryRatio! > 0.99);
+  assert.ok(finding.gapWidthToSharedBoundaryRatio! < 0.1);
+  assert.equal(finding.repairable, false);
+
+  const report = buildGapReport(detection, 0.075);
+  assert.equal(report.issues[0]?.recommendedAction, "ManualReview");
+});
+
+test("does not infer a gap from a short partial boundary alignment", () => {
+  const detection = detectGaps(
+    {
+      type: "FeatureCollection",
+      features: [
+        square(51.38, 35.68, 0.002, "west"),
+        square(51.3822, 35.6815, 0.002, "partial"),
+      ],
+    },
+    { gapToleranceMeters: 0.075 },
+  );
+
+  assert.deepEqual(detection.findings, []);
+});
+
 test("rejects bbox-near diagonal polygons outside the true distance", () => {
   const detection = detectGaps(
     {

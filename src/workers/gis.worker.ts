@@ -459,6 +459,7 @@ const runMapshaperPipeline = async (
 
     const sliversBefore = processSlivers(geojson, {
       sliverAreaThresholdM2: minAreaM2,
+      minCompactness: 0,
     }).report.sliversFound;
     const gapsFound = processGaps(geojson, {
       gapToleranceMeters,
@@ -485,6 +486,7 @@ const runMapshaperPipeline = async (
         const result = JSON.parse(output["output.json"].toString("utf-8"));
         const sliversAfter = processSlivers(result, {
           sliverAreaThresholdM2: minAreaM2,
+          minCompactness: 0,
         }).report.sliversFound;
         const sliversRemovedCount = Math.max(0, sliversBefore - sliversAfter);
         const gapsAfter = processGaps(result, {
@@ -1016,9 +1018,10 @@ export const gisWorker = new Worker(
       );
     }
 
-    // Slivers follow the legacy worker's tolerance-derived feature-area rule.
-    // They are reported before GEO-008 quarantines tiny polygons; destructive
-    // removal is intentionally left to manual review for input features.
+    // Slivers use both the tolerance-derived area threshold and the
+    // scale-independent compactness gate. They are reported before GEO-008
+    // quarantines tiny polygons; destructive removal is intentionally left
+    // to manual review for input features.
     const inputSliverValidationReport = processSlivers(geojson, {
       sliverAreaThresholdM2: minSliverAreaM2,
     }).report;

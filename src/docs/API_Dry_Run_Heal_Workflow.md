@@ -28,7 +28,7 @@ Successful uploads return `201 Created`:
       "valid": false,
       "summary": {
         "featuresScanned": 4,
-        "checksRun": 17,
+        "checksRun": 18,
         "issuesFound": 3,
         "issueGroups": 1,
         "affectedFeatures": 2,
@@ -94,14 +94,17 @@ indexes and in `affectedFeatureCollection`.
 
 Dry-run includes these topology checks:
 
+- `overlaps` / `POLYGON_OVERLAP`
 - `gaps` / `POLYGON_GAP`
 - `slivers` / `SLIVER_POLYGON`
 - `undershoots` / `LINE_UNDERSHOOT`
 - `overshoots` / `LINE_OVERSHOOT`
 
-The applied metric thresholds are exposed as `gapToleranceMeters`,
-`sliverAreaThresholdM2`, and `lineTopologyToleranceMeters` under
-`report.appliedOptions`.
+The applied metric and shape thresholds are exposed under
+`report.appliedOptions`. Detection can report a high-confidence shape or
+shared-boundary anomaly beyond the repair tolerance. Such findings are
+`ManualReview`; `AutoRepairAvailable` remains restricted to safe endpoint or
+gap movements inside the supplied millimetre tolerance.
 
 Use `report.issueGroups` for the frontend error list. It contains one item per
 `check` and `code` combination, regardless of whether the same problem affects

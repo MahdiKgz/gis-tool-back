@@ -1,9 +1,11 @@
-import { GapDetectionResult, GapValidationReport } from "./types";
+import {
+  PolygonOverlapDetectionResult,
+  PolygonOverlapValidationReport,
+} from "./types";
 
-export const buildGapReport = (
-  detection: GapDetectionResult,
-  appliedGapToleranceMeters: number,
-): GapValidationReport => {
+export const buildPolygonOverlapReport = (
+  detection: PolygonOverlapDetectionResult,
+): PolygonOverlapValidationReport => {
   const affectedFeatureIndexes = detection.findings.flatMap((finding) => [
     finding.featureIndex,
     finding.relatedFeatureIndex,
@@ -12,18 +14,15 @@ export const buildGapReport = (
     valid: detection.findings.length === 0,
     polygonComponentsScanned: detection.polygonComponentsScanned,
     candidatePairsChecked: detection.candidatePairsChecked,
-    gapsFound: detection.findings.length,
+    overlapsFound: detection.findings.length,
     unresolvedIssues: detection.findings.length,
     unresolvedFeatureIndexes: [...new Set(affectedFeatureIndexes)].sort(
       (first, second) => first - second,
     ),
-    appliedGapToleranceMeters,
     issues: detection.findings.map((finding) => ({
       ...finding,
       status: "Unresolved",
-      recommendedAction: finding.repairable
-        ? ("AutoRepair" as const)
-        : ("ManualReview" as const),
+      recommendedAction: "ManualReview",
     })),
   };
 };

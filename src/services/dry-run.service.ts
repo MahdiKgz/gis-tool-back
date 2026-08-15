@@ -4,12 +4,17 @@ import { processGeometryDimensions } from "../processing/geometry-dimensions";
 import { processGeometryTypes } from "../processing/geometry-types";
 import {
   computeGapToleranceMeters,
+  DEFAULT_MAX_INFERRED_GAP_WIDTH_M,
   processGaps,
 } from "../processing/gaps";
 import { processInvalidHoles } from "../processing/invalid-holes";
 import { processInvalidRings } from "../processing/invalid-rings";
-import { processLineTopology } from "../processing/line-topology";
+import {
+  DEFAULT_MAX_INFERRED_LINE_ERROR_M,
+  processLineTopology,
+} from "../processing/line-topology";
 import { processMultipartIntegrity } from "../processing/multipart-integrity";
+import { processPolygonOverlaps } from "../processing/overlaps";
 import { processRingClosure } from "../processing/ring-closure";
 import { processRingOrientation } from "../processing/ring-orientation";
 import { processSelfIntersections } from "../processing/self-intersections";
@@ -20,6 +25,7 @@ import {
 import { processSpikes } from "../processing/spikes";
 import {
   computeSliverAreaThresholdM2,
+  DEFAULT_MIN_SLIVER_COMPACTNESS,
   processSlivers,
 } from "../processing/slivers";
 import { processTinyPolygons } from "../processing/tiny-polygons";
@@ -96,8 +102,11 @@ export interface DryRunReport {
     toleranceMillimeters: number;
     tinyAreaThresholdM2: number;
     sliverAreaThresholdM2: number;
+    sliverMinCompactness: number;
     gapToleranceMeters: number;
+    maxInferredGapWidthMeters: number;
     lineTopologyToleranceMeters: number;
+    maxInferredLineErrorMeters: number;
     spikeBaseToleranceMeters: number;
     maxCoordinateDecimalPlaces: number;
   };
@@ -271,8 +280,11 @@ export const analyzeGeoJson = (
       toleranceMillimeters: options.toleranceMillimeters,
       tinyAreaThresholdM2,
       sliverAreaThresholdM2: tinyAreaThresholdM2,
+      sliverMinCompactness: DEFAULT_MIN_SLIVER_COMPACTNESS,
       gapToleranceMeters,
+      maxInferredGapWidthMeters: DEFAULT_MAX_INFERRED_GAP_WIDTH_M,
       lineTopologyToleranceMeters: toleranceMeters,
+      maxInferredLineErrorMeters: DEFAULT_MAX_INFERRED_LINE_ERROR_M,
       spikeBaseToleranceMeters: toleranceMeters,
       maxCoordinateDecimalPlaces,
     });
@@ -352,6 +364,7 @@ export const analyzeGeoJson = (
   }).report;
   checks.slivers = processSlivers(polygonInput, {
     sliverAreaThresholdM2: tinyAreaThresholdM2,
+    minCompactness: DEFAULT_MIN_SLIVER_COMPACTNESS,
   }).report;
 
   const gapUnsafe = new Set([
@@ -361,8 +374,10 @@ export const analyzeGeoJson = (
     ...(spikeReport.unresolvedFeatureIndexes ?? []),
     ...(zeroAreaPolygonReport.unresolvedFeatureIndexes ?? []),
   ]);
+  const polygonRelationshipInput = createQuarantinedView(geojson, gapUnsafe);
+  checks.overlaps = processPolygonOverlaps(polygonRelationshipInput).report;
   checks.gaps = processGaps(
-    createQuarantinedView(geojson, gapUnsafe),
+    polygonRelationshipInput,
     { gapToleranceMeters },
   ).report;
 
@@ -370,8 +385,11 @@ export const analyzeGeoJson = (
     toleranceMillimeters: options.toleranceMillimeters,
     tinyAreaThresholdM2,
     sliverAreaThresholdM2: tinyAreaThresholdM2,
+    sliverMinCompactness: DEFAULT_MIN_SLIVER_COMPACTNESS,
     gapToleranceMeters,
+    maxInferredGapWidthMeters: DEFAULT_MAX_INFERRED_GAP_WIDTH_M,
     lineTopologyToleranceMeters: toleranceMeters,
+    maxInferredLineErrorMeters: DEFAULT_MAX_INFERRED_LINE_ERROR_M,
     spikeBaseToleranceMeters: toleranceMeters,
     maxCoordinateDecimalPlaces,
   });

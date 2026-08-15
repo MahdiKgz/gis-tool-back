@@ -2,6 +2,7 @@ import { FeatureCollectionLike } from "../shared/geojson";
 
 export interface SliverOptions {
   sliverAreaThresholdM2: number;
+  minCompactness?: number;
 }
 
 export interface SliverFinding {
@@ -9,9 +10,14 @@ export interface SliverFinding {
   featureIndex: number;
   featureId: string | number | null;
   geometryType: "Polygon" | "MultiPolygon";
-  geometryCollectionPath: [];
+  geometryCollectionPath: number[];
+  polygonPath: number[];
   areaM2: number;
+  perimeterMeters: number;
+  compactness: number;
+  detectionReasons: Array<"Area" | "Compactness">;
   thresholdM2: number;
+  minCompactness: number;
   repairable: false;
 }
 

@@ -150,7 +150,6 @@ export const detectSpikes = (
         );
         if (
           !Number.isFinite(tipAngleDegrees) ||
-          baseWidthMeters > normalized.baseToleranceMeters ||
           tipAngleDegrees > normalized.maxTipAngleDegrees ||
           Math.min(beforeLegMeters, afterLegMeters) <
             baseWidthMeters * normalized.minLegToBaseRatio
@@ -174,7 +173,8 @@ export const detectSpikes = (
           beforeLegMeters,
           afterLegMeters,
           tipAngleDegrees,
-          repairable: true,
+          repairable:
+            baseWidthMeters <= normalized.baseToleranceMeters,
         });
       }
     });
