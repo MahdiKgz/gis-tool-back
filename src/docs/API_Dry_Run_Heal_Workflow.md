@@ -12,8 +12,13 @@ Content-Type: multipart/form-data
 
 Form fields:
 
+- `name` (required): a user-facing dataset name between 2 and 150 characters
 - `file` (required): `.geojson`, `.json`, `.kml`, `.kmz`, `.shp`, or `.zip`
 - `tolerance` (optional): positive millimeters, default `25`
+
+The upload owner is derived from the bearer access token. The endpoint does not
+accept a client-selected `userId` because that would allow one user to create
+records owned by another user.
 
 Successful uploads return `201 Created`:
 
@@ -22,6 +27,8 @@ Successful uploads return `201 Created`:
   "success": true,
   "data": {
     "jobId": "6c2d5ee6-9852-4ddd-86db-f62582ef93de",
+    "userId": "9f2107aa-b0b6-4616-b03b-8888d70612a5",
+    "name": "Parcel boundaries",
     "status": "dry-run-complete",
     "report": {
       "mode": "dry-run",

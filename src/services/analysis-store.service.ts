@@ -155,6 +155,13 @@ export const getAnalysis = async (
   return normalizeRecord(JSON.parse(contents) as StoredAnalysis);
 };
 
+export const deleteAnalysis = async (
+  id: string,
+  storeDirectory = DEFAULT_STORE_DIRECTORY,
+): Promise<void> => {
+  await fs.rm(analysisPath(id, storeDirectory), { force: true });
+};
+
 export const markAnalysisQueued = async (
   record: StoredAnalysis,
   queueJobId: string,

@@ -5,7 +5,8 @@ import path from "node:path";
 import test from "node:test";
 import { NextFunction, Request, Response } from "express";
 import { getAnalysis } from "../services/analysis-store.service";
-import { uploadGeoJson } from "./upload.controller";
+import { CreateUploadRecordInput } from "../services/upload-record.service";
+import { createUploadHandler } from "./upload.controller";
 
 test("upload controller performs a dry run and does not enqueue healing", async (t) => {
   const temporaryDirectory = await fs.mkdtemp(
@@ -24,12 +25,13 @@ test("upload controller performs a dry run and does not enqueue healing", async 
 
   const request = {
     auth: { userId: "6c2d5ee6-9852-4ddd-86db-f62582ef93de", roles: ["user"] },
-    body: { tolerance: "25" },
+    body: { name: "  Parcel boundaries  ", tolerance: "25" },
     file: {
       filename: "uploaded.geojson",
       originalname: "duplicate-vertices.geojson",
       path: uploadedPath,
       size: (await fs.stat(uploadedPath)).size,
+      mimetype: "application/geo+json",
     },
   } as Request;
   let statusCode = 0;
@@ -37,6 +39,8 @@ test("upload controller performs a dry run and does not enqueue healing", async 
     success: boolean;
     data: {
       jobId: string;
+      userId: string;
+      name: string;
       status: string;
       report: {
         mode: string;
@@ -71,6 +75,13 @@ test("upload controller performs a dry run and does not enqueue healing", async 
   const next = ((error?: unknown) => {
     if (error) throw error;
   }) as NextFunction;
+  let createdRecord: CreateUploadRecordInput | undefined;
+  const uploadGeoJson = createUploadHandler({
+    createRecord: async (input) => {
+      createdRecord = input;
+    },
+    deleteRecord: async () => undefined,
+  });
 
   await uploadGeoJson(request, response, next);
 
@@ -78,6 +89,8 @@ test("upload controller performs a dry run and does not enqueue healing", async 
   assert.ok(capture.body);
   const body = capture.body;
   assert.equal(body.success, true);
+  assert.equal(body.data.name, "Parcel boundaries");
+  assert.equal(body.data.userId, request.auth?.userId);
   assert.equal(body.data.status, "dry-run-complete");
   assert.equal(body.data.report.mode, "dry-run");
   assert.ok(body.data.report.summary.issuesFound > 0);
@@ -102,6 +115,16 @@ test("upload controller performs a dry run and does not enqueue healing", async 
     method: "POST",
     path: `/api/heal/${body.data.jobId}`,
   });
+
+  assert.ok(createdRecord);
+  assert.equal(createdRecord.id, body.data.jobId);
+  assert.equal(createdRecord.userId, request.auth?.userId);
+  assert.equal(createdRecord.name, "Parcel boundaries");
+  assert.equal(createdRecord.originalName, "duplicate-vertices.geojson");
+  assert.equal(createdRecord.storedFileName, "uploaded.geojson");
+  assert.equal(createdRecord.storagePath, path.resolve(uploadedPath));
+  assert.equal(createdRecord.mimeType, "application/geo+json");
+  assert.equal(createdRecord.sizeInBytes, request.file?.size);
 
   const analysis = await getAnalysis(body.data.jobId);
   assert.ok(analysis);

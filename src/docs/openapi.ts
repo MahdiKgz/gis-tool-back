@@ -149,6 +149,12 @@ export const openApiDocument = {
               schema: {
                 type: "object",
                 properties: {
+                  name: {
+                    type: "string",
+                    minLength: 2,
+                    maxLength: 150,
+                    description: "User-facing name for identifying the uploaded dataset",
+                  },
                   file: { type: "string", format: "binary" },
                   tolerance: {
                     type: "number",
@@ -158,7 +164,7 @@ export const openApiDocument = {
                     description: "Topology tolerance in millimeters",
                   },
                 },
-                required: ["file"],
+                required: ["name", "file"],
               },
             },
           },
@@ -311,6 +317,8 @@ export const openApiDocument = {
             type: "object",
             properties: {
               jobId: { type: "string", format: "uuid" },
+              userId: { type: "string", format: "uuid" },
+              name: { type: "string" },
               status: { type: "string", example: "dry-run-complete" },
               originalName: { type: "string" },
               sizeInBytes: { type: "integer" },
@@ -321,7 +329,7 @@ export const openApiDocument = {
                 properties: { method: { type: "string" }, path: { type: "string" } },
               },
             },
-            required: ["jobId", "status", "report", "heal"],
+            required: ["jobId", "userId", "name", "status", "report", "heal"],
           },
         },
         required: ["success", "data"],
