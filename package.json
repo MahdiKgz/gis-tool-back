@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "prebuild": "prisma generate",
     "build": "tsc",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
@@ -14,6 +15,7 @@
     "test": "pnpm run test:compile && node --test --test-isolation=none 'dist-test/**/*.test.js'",
     "test:compile": "tsc -p tsconfig.test.json",
     "start": "node dist/server.js",
+    "predev": "prisma generate",
     "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node --files' src/server.ts"
   },
   "keywords": [],

@@ -1,4 +1,4 @@
-import { UploadedFile } from "@prisma/client";
+import type { UploadedFile } from "@prisma/client";
 import { database } from "./database.service";
 
 export interface CreateUploadRecordInput {
