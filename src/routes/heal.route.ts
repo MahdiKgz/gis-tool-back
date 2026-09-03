@@ -5,8 +5,11 @@ import {
   getHealStatus,
   previewHealedOutput,
 } from "../controllers/heal-status.controller";
+import { requireAuthentication } from "../middlewares/auth.middleware";
 
 const router = express.Router();
+
+router.use(requireAuthentication);
 
 router.post("/:jobId", healAnalyzedFile);
 router.get("/:jobId", getHealStatus);

@@ -8,6 +8,7 @@ import {
 import { gisQueue } from "../services/queue.service";
 import { AppError } from "../middlewares/errorHandler";
 import { buildHealStatusData } from "./heal-status.controller";
+import { getAuthenticatedUserId } from "../middlewares/auth.middleware";
 
 export const healAnalyzedFile = async (
   req: Request,
@@ -31,6 +32,9 @@ export const healAnalyzedFile = async (
     }
 
     if (!analysis) {
+      throw new AppError(404, "Dry-run job not found", "JOB_NOT_FOUND");
+    }
+    if (analysis.ownerId !== getAuthenticatedUserId(req)) {
       throw new AppError(404, "Dry-run job not found", "JOB_NOT_FOUND");
     }
 

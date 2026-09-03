@@ -23,6 +23,7 @@ test("upload controller performs a dry run and does not enqueue healing", async 
   );
 
   const request = {
+    auth: { userId: "6c2d5ee6-9852-4ddd-86db-f62582ef93de", roles: ["user"] },
     body: { tolerance: "25" },
     file: {
       filename: "uploaded.geojson",
@@ -99,11 +100,12 @@ test("upload controller performs a dry run and does not enqueue healing", async 
   );
   assert.deepEqual(body.data.heal, {
     method: "POST",
-    path: `/heal/${body.data.jobId}`,
+    path: `/api/heal/${body.data.jobId}`,
   });
 
   const analysis = await getAnalysis(body.data.jobId);
   assert.ok(analysis);
+  assert.equal(analysis.ownerId, request.auth?.userId);
   assert.equal(analysis.queueJobId, null);
   assert.equal(analysis.queuedAt, null);
   t.after(() =>

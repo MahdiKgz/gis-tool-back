@@ -4,6 +4,7 @@ import { NextFunction, Request, Response } from "express";
 import { saveAnalysis } from "../services/analysis-store.service";
 import { analyzeGisFile } from "../services/dry-run.service";
 import { AppError } from "../middlewares/errorHandler";
+import { getAuthenticatedUserId } from "../middlewares/auth.middleware";
 
 const DEFAULT_TOLERANCE_MILLIMETERS = 25;
 const MAX_TOLERANCE_MILLIMETERS = 100_000;
@@ -59,7 +60,7 @@ export const uploadGeoJson = async (
       req.file.originalname,
       { toleranceMillimeters: tolerance },
     );
-    const analysis = await saveAnalysis(jobData, report);
+    const analysis = await saveAnalysis(jobData, report, undefined, getAuthenticatedUserId(req));
     analysisPersisted = true;
 
     console.log(
@@ -80,7 +81,7 @@ export const uploadGeoJson = async (
         report,
         heal: {
           method: "POST",
-          path: `/heal/${analysis.id}`,
+          path: `/api/heal/${analysis.id}`,
         },
       },
     });

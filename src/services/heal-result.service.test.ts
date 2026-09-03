@@ -26,8 +26,8 @@ test("builds a public result without exposing the server file path", () => {
   assert.equal(result.repairsApplied, 6);
   assert.deepEqual(result.output, {
     fileName: "cleaned-parcels.geojson",
-    previewPath: `/heal/${analysis.id}/output`,
-    downloadPath: `/heal/${analysis.id}/download`,
+    previewPath: `/api/heal/${analysis.id}/output`,
+    downloadPath: `/api/heal/${analysis.id}/download`,
   });
   assert.equal("outputFilePath" in result, false);
 });

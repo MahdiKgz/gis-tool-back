@@ -44,6 +44,8 @@ const emptyReport = {
   checks: {},
 } as DryRunReport;
 
+const ownerId = "6c2d5ee6-9852-4ddd-86db-f62582ef93de";
+
 test("serves completed status, preview GeoJSON, and attachment download", async (t) => {
   const analysis = await saveAnalysis(
     {
@@ -54,6 +56,8 @@ test("serves completed status, preview GeoJSON, and attachment download", async 
       tolerance: 25,
     },
     emptyReport,
+    undefined,
+    ownerId,
   );
   const outputDirectory = path.resolve("uploads/cleaned_files");
   const outputFileName = `cleaned-${analysis.id}.geojson`;
@@ -78,6 +82,7 @@ test("serves completed status, preview GeoJSON, and attachment download", async 
 
   const request = {
     params: { jobId: analysis.id },
+    auth: { userId: ownerId, roles: ["user"] },
   } as unknown as Request;
   const next = ((error?: unknown) => {
     if (error) throw error;
@@ -115,7 +120,7 @@ test("serves completed status, preview GeoJSON, and attachment download", async 
   assert.equal(status.data.result.repairsApplied, 1);
   assert.equal(
     status.data.result.output.downloadPath,
-    `/heal/${analysis.id}/download`,
+    `/api/heal/${analysis.id}/download`,
   );
 
   let previewType = "";

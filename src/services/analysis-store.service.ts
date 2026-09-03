@@ -18,6 +18,7 @@ export interface StoredHealResult extends Record<string, unknown> {
 
 export interface StoredAnalysis {
   id: string;
+  ownerId: string | null;
   createdAt: string;
   queuedAt: string | null;
   queueJobId: string | null;
@@ -46,6 +47,7 @@ const analysisPath = (id: string, storeDirectory: string): string => {
 
 const normalizeRecord = (record: StoredAnalysis): StoredAnalysis => ({
   ...record,
+  ownerId: record.ownerId ?? null,
   healStatus:
     record.healStatus ??
     (record.queueJobId === null ? "dry-run-complete" : "queued"),
@@ -106,9 +108,11 @@ export const saveAnalysis = async (
   jobData: GisJobData,
   report: DryRunReport,
   storeDirectory = DEFAULT_STORE_DIRECTORY,
+  ownerId: string | null = null,
 ): Promise<StoredAnalysis> => {
   const record: StoredAnalysis = {
     id: randomUUID(),
+    ownerId,
     createdAt: new Date().toISOString(),
     queuedAt: null,
     queueJobId: null,

@@ -9,8 +9,12 @@ import {
   buildPublicHealResult,
   resolveHealedOutput,
 } from "../services/heal-result.service";
+import { getAuthenticatedUserId } from "../middlewares/auth.middleware";
 
-const getStoredAnalysis = async (jobId: unknown): Promise<StoredAnalysis> => {
+const getStoredAnalysis = async (
+  jobId: unknown,
+  ownerId: string,
+): Promise<StoredAnalysis> => {
   if (typeof jobId !== "string" || jobId.length === 0) {
     throw new AppError(400, "A job ID is required", "JOB_ID_REQUIRED");
   }
@@ -24,6 +28,9 @@ const getStoredAnalysis = async (jobId: unknown): Promise<StoredAnalysis> => {
     throw error;
   }
   if (!analysis) {
+    throw new AppError(404, "Dry-run job not found", "JOB_NOT_FOUND");
+  }
+  if (analysis.ownerId !== ownerId) {
     throw new AppError(404, "Dry-run job not found", "JOB_NOT_FOUND");
   }
   return analysis;
@@ -44,9 +51,9 @@ export const buildHealStatusData = (analysis: StoredAnalysis) => ({
       ? buildPublicHealResult(analysis)
       : null,
   links: {
-    status: `/heal/${analysis.id}`,
-    output: `/heal/${analysis.id}/output`,
-    download: `/heal/${analysis.id}/download`,
+    status: `/api/heal/${analysis.id}`,
+    output: `/api/heal/${analysis.id}/output`,
+    download: `/api/heal/${analysis.id}/download`,
   },
 });
 
@@ -56,7 +63,10 @@ export const getHealStatus = async (
   next: NextFunction,
 ): Promise<void> => {
   try {
-    const analysis = await getStoredAnalysis(req.params.jobId);
+    const analysis = await getStoredAnalysis(
+      req.params.jobId,
+      getAuthenticatedUserId(req),
+    );
     res.status(200).json({
       success: true,
       data: buildHealStatusData(analysis),
@@ -68,8 +78,9 @@ export const getHealStatus = async (
 
 const getCompletedOutput = async (
   jobId: unknown,
+  ownerId: string,
 ): Promise<{ filePath: string; fileName: string }> => {
-  const analysis = await getStoredAnalysis(jobId);
+  const analysis = await getStoredAnalysis(jobId, ownerId);
   if (analysis.healStatus !== "completed") {
     throw new AppError(
       409,
@@ -103,7 +114,10 @@ export const previewHealedOutput = async (
   next: NextFunction,
 ): Promise<void> => {
   try {
-    const output = await getCompletedOutput(req.params.jobId);
+    const output = await getCompletedOutput(
+      req.params.jobId,
+      getAuthenticatedUserId(req),
+    );
     res.type("application/geo+json");
     res.sendFile(output.filePath);
   } catch (error) {
@@ -117,7 +131,10 @@ export const downloadHealedOutput = async (
   next: NextFunction,
 ): Promise<void> => {
   try {
-    const output = await getCompletedOutput(req.params.jobId);
+    const output = await getCompletedOutput(
+      req.params.jobId,
+      getAuthenticatedUserId(req),
+    );
     res.download(output.filePath, output.fileName, (error) => {
       if (error && !res.headersSent) next(error);
     });

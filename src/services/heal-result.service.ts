@@ -49,8 +49,8 @@ export const buildPublicHealResult = (
     output: outputFileName
       ? {
           fileName: outputFileName,
-          previewPath: `/heal/${analysis.id}/output`,
-          downloadPath: `/heal/${analysis.id}/download`,
+          previewPath: `/api/heal/${analysis.id}/output`,
+          downloadPath: `/api/heal/${analysis.id}/download`,
         }
       : null,
   };
