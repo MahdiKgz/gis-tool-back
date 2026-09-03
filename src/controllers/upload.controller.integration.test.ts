@@ -125,6 +125,10 @@ test("upload controller performs a dry run and does not enqueue healing", async 
   assert.equal(createdRecord.storagePath, path.resolve(uploadedPath));
   assert.equal(createdRecord.mimeType, "application/geo+json");
   assert.equal(createdRecord.sizeInBytes, request.file?.size);
+  assert.equal(
+    createdRecord.identifiedIssues,
+    body.data.report.summary.issuesFound,
+  );
 
   const analysis = await getAnalysis(body.data.jobId);
   assert.ok(analysis);

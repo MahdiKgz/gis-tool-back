@@ -1,4 +1,5 @@
 import type { UploadedFile } from "@prisma/client";
+import type { HealStatus } from "./analysis-store.service";
 import { database } from "./database.service";
 
 export interface CreateUploadRecordInput {
@@ -10,11 +11,18 @@ export interface CreateUploadRecordInput {
   storagePath: string;
   mimeType: string;
   sizeInBytes: number;
+  identifiedIssues: number;
 }
 
 export interface UploadRecordPage {
   records: UploadedFile[];
   total: number;
+}
+
+export interface UserUploadSummary {
+  fileCount: number;
+  identifiedIssues: number;
+  healedIssues: number;
 }
 
 export const createUploadRecord = (
@@ -72,4 +80,33 @@ export const deleteUserUploadRecord = async (
     where: { id, userId },
   });
   return result.count > 0;
+};
+
+export const updateUploadHealingMetrics = async (
+  id: string,
+  healStatus: HealStatus,
+  healedIssues?: number,
+): Promise<void> => {
+  await database.uploadedFile.updateMany({
+    where: { id },
+    data: {
+      healStatus,
+      ...(healedIssues === undefined ? {} : { healedIssues }),
+    },
+  });
+};
+
+export const getUserUploadSummary = async (
+  userId: string,
+): Promise<UserUploadSummary> => {
+  const aggregate = await database.uploadedFile.aggregate({
+    where: { userId },
+    _count: { _all: true },
+    _sum: { identifiedIssues: true, healedIssues: true },
+  });
+  return {
+    fileCount: aggregate._count._all,
+    identifiedIssues: aggregate._sum.identifiedIssues ?? 0,
+    healedIssues: aggregate._sum.healedIssues ?? 0,
+  };
 };

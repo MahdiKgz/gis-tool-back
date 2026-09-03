@@ -9,6 +9,18 @@ Authorization: Bearer <access-token>
 The server derives ownership from this token. A client cannot supply or change
 the owner ID.
 
+## Read the dashboard summary
+
+```http
+GET /api/files/summary
+```
+
+Returns the current plan (`free`/`رایگان`), its null expiry and remaining-day
+values, and database-aggregated totals for uploaded files, identified issues,
+and successfully applied repairs. The issue totals are captured during upload
+and updated by the healing worker, so this endpoint does not scan stored
+analysis files.
+
 ## List the current user's files
 
 ```http

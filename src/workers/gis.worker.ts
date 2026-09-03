@@ -58,6 +58,8 @@ import {
   markAnalysisProgress,
 } from "../services/analysis-store.service";
 import { GisJobData } from "../types/gis-job";
+import { countAppliedRepairs } from "../services/heal-result.service";
+import { updateUploadHealingMetrics } from "../services/upload-record.service";
 const mapshaper = require("mapshaper");
 
 // ---------------------------------------------------------------------------
@@ -1366,7 +1368,14 @@ const persistLifecycle = (
 
 gisWorker.on("active", (job) => {
   const jobId = String(job.id);
-  persistLifecycle(markAnalysisProcessing(jobId), "active state", jobId);
+  persistLifecycle(
+    Promise.all([
+      markAnalysisProcessing(jobId),
+      updateUploadHealingMetrics(jobId, "processing"),
+    ]),
+    "active state",
+    jobId,
+  );
 });
 
 gisWorker.on("progress", (job, progress) => {
@@ -1391,7 +1400,14 @@ gisWorker.on("completed", (job, result) => {
   console.log(`✅ [SnapGIS Worker] Job ${job.id} COMPLETED.`);
   const jobId = String(job.id);
   persistLifecycle(
-    markAnalysisCompleted(jobId, result),
+    Promise.all([
+      markAnalysisCompleted(jobId, result),
+      updateUploadHealingMetrics(
+        jobId,
+        "completed",
+        countAppliedRepairs(result),
+      ),
+    ]),
     "completion result",
     jobId,
   );
@@ -1404,10 +1420,13 @@ gisWorker.on("failed", (job, err) => {
   if (job.attemptsMade < maximumAttempts) return;
   const jobId = String(job.id);
   persistLifecycle(
-    markAnalysisFailed(
-      jobId,
-      "Healing failed after all retry attempts. Please try again.",
-    ),
+    Promise.all([
+      markAnalysisFailed(
+        jobId,
+        "Healing failed after all retry attempts. Please try again.",
+      ),
+      updateUploadHealingMetrics(jobId, "failed"),
+    ]),
     "failure state",
     jobId,
   );

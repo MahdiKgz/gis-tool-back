@@ -98,6 +98,7 @@ export const createUploadHandler = (
         storagePath: filePath,
         mimeType: req.file.mimetype || "application/octet-stream",
         sizeInBytes: req.file.size,
+        identifiedIssues: report.summary.issuesFound,
       });
       persistenceComplete = true;
 

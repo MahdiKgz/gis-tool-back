@@ -9,6 +9,7 @@ import { gisQueue } from "../services/queue.service";
 import { AppError } from "../middlewares/errorHandler";
 import { buildHealStatusData } from "./heal-status.controller";
 import { getAuthenticatedUserId } from "../middlewares/auth.middleware";
+import { updateUploadHealingMetrics } from "../services/upload-record.service";
 
 export const healAnalyzedFile = async (
   req: Request,
@@ -40,6 +41,7 @@ export const healAnalyzedFile = async (
 
     if (analysis.queueJobId && analysis.healStatus === "failed") {
       analysis = (await resetAnalysisQueueRequest(analysis.id)) ?? analysis;
+      await updateUploadHealingMetrics(analysis.id, "dry-run-complete", 0);
     }
 
     if (analysis.queueJobId) {
@@ -67,6 +69,7 @@ export const healAnalyzedFile = async (
     const updated = await markAnalysisQueued(analysis, analysis.id);
     let queueJobId = analysis.id;
     try {
+      await updateUploadHealingMetrics(analysis.id, "queued", 0);
       const job = await gisQueue.add(
         "heal-gis-file",
         analysis.jobData,
@@ -74,7 +77,10 @@ export const healAnalyzedFile = async (
       );
       queueJobId = String(job.id ?? analysis.id);
     } catch (error) {
-      await resetAnalysisQueueRequest(analysis.id);
+      await Promise.allSettled([
+        resetAnalysisQueueRequest(analysis.id),
+        updateUploadHealingMetrics(analysis.id, "dry-run-complete", 0),
+      ]);
       throw error;
     }
 

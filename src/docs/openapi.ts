@@ -211,6 +211,24 @@ export const openApiDocument = {
         },
       },
     },
+    "/files/summary": {
+      get: {
+        tags: ["Files"],
+        summary: "Get the authenticated user's dashboard summary",
+        security: [{ bearerAuth: [] }],
+        responses: {
+          "200": {
+            description: "Current plan and persisted upload activity totals",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/DashboardSummaryResponse" },
+              },
+            },
+          },
+          ...errorResponses,
+        },
+      },
+    },
     "/files/{fileId}": {
       parameters: [{ $ref: "#/components/parameters/FileId" }],
       get: {
@@ -450,6 +468,38 @@ export const openApiDocument = {
           issuesFound: { type: "integer", nullable: true },
         },
         required: ["id", "name", "originalName", "sizeInBytes", "uploadedAt", "updatedAt", "status", "isHealed", "issuesFound"],
+      },
+      DashboardSummaryResponse: {
+        type: "object",
+        properties: {
+          success: { type: "boolean", example: true },
+          data: {
+            type: "object",
+            properties: {
+              plan: {
+                type: "object",
+                properties: {
+                  code: { type: "string", enum: ["free"] },
+                  name: { type: "string", example: "رایگان" },
+                  expiresAt: { type: "string", format: "date-time", nullable: true },
+                  remainingDays: { type: "integer", nullable: true },
+                },
+                required: ["code", "name", "expiresAt", "remainingDays"],
+              },
+              usage: {
+                type: "object",
+                properties: {
+                  files: { type: "integer", minimum: 0 },
+                  identifiedIssues: { type: "integer", minimum: 0 },
+                  healedIssues: { type: "integer", minimum: 0 },
+                },
+                required: ["files", "identifiedIssues", "healedIssues"],
+              },
+            },
+            required: ["plan", "usage"],
+          },
+        },
+        required: ["success", "data"],
       },
       FileSummaryResponse: {
         type: "object",

@@ -18,9 +18,11 @@ import { parseUploadName } from "../services/upload-name.service";
 import {
   deleteUserUploadRecord,
   findUserUploadRecord,
+  getUserUploadSummary,
   listUserUploadRecords,
   renameUserUploadRecord,
   type UploadRecordPage,
+  type UserUploadSummary,
 } from "../services/upload-record.service";
 
 const DEFAULT_FILE_LIMIT = 10;
@@ -32,6 +34,7 @@ const UPLOAD_DIRECTORY = path.resolve("uploads/gis_files");
 type PublicFileStatus = HealStatus | "unavailable";
 
 interface FileControllerDependencies {
+  getSummary: (userId: string) => Promise<UserUploadSummary>;
   listRecords: (
     userId: string,
     skip: number,
@@ -50,6 +53,7 @@ interface FileControllerDependencies {
 }
 
 const defaultDependencies: FileControllerDependencies = {
+  getSummary: getUserUploadSummary,
   listRecords: listUserUploadRecords,
   findRecord: findUserUploadRecord,
   renameRecord: renameUserUploadRecord,
@@ -175,6 +179,35 @@ const resolveUploadPath = (filePath: string): string | null => {
 export const createFileController = (
   dependencies: FileControllerDependencies = defaultDependencies,
 ) => ({
+  getDashboardSummary: async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) => {
+    try {
+      const userId = getAuthenticatedUserId(req);
+      const usage = await dependencies.getSummary(userId);
+      res.status(200).json({
+        success: true,
+        data: {
+          plan: {
+            code: "free",
+            name: "رایگان",
+            expiresAt: null,
+            remainingDays: null,
+          },
+          usage: {
+            files: usage.fileCount,
+            identifiedIssues: usage.identifiedIssues,
+            healedIssues: usage.healedIssues,
+          },
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   listFiles: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = getAuthenticatedUserId(req);
@@ -298,4 +331,10 @@ export const createFileController = (
 });
 
 const fileController = createFileController();
-export const { deleteFile, getFile, listFiles, renameFile } = fileController;
+export const {
+  deleteFile,
+  getDashboardSummary,
+  getFile,
+  listFiles,
+  renameFile,
+} = fileController;

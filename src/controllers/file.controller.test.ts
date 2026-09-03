@@ -19,6 +19,9 @@ const record = (overrides: Partial<UploadedFile> = {}): UploadedFile => ({
   storagePath: path.resolve("uploads/gis_files/stored-parcels.geojson"),
   mimeType: "application/geo+json",
   sizeInBytes: 1024,
+  healStatus: "dry-run-complete",
+  identifiedIssues: 4,
+  healedIssues: 0,
   createdAt: new Date("2026-09-03T06:30:00.000Z"),
   updatedAt: new Date("2026-09-03T06:30:00.000Z"),
   ...overrides,
@@ -72,6 +75,11 @@ const nextCapture = () => {
 const dependencies = (
   overrides: Partial<Parameters<typeof createFileController>[0]> = {},
 ): Parameters<typeof createFileController>[0] => ({
+  getSummary: async () => ({
+    fileCount: 0,
+    identifiedIssues: 0,
+    healedIssues: 0,
+  }),
   listRecords: async () => ({ records: [], total: 0 }),
   findRecord: async () => null,
   renameRecord: async () => null,
@@ -80,6 +88,42 @@ const dependencies = (
   removeAnalysis: async () => undefined,
   removeFile: async () => undefined,
   ...overrides,
+});
+
+test("returns the authenticated user's free-plan dashboard summary", async () => {
+  let requestedUserId: string | undefined;
+  const controller = createFileController(
+    dependencies({
+      getSummary: async (requestedId) => {
+        requestedUserId = requestedId;
+        return { fileCount: 7, identifiedIssues: 24, healedIssues: 18 };
+      },
+    }),
+  );
+  const { capture, response } = responseCapture();
+  const { capture: nextResult, next } = nextCapture();
+
+  await controller.getDashboardSummary(
+    { auth: { userId, roles: ["user"] } } as Request,
+    response,
+    next,
+  );
+
+  assert.equal(nextResult.error, undefined);
+  assert.equal(requestedUserId, userId);
+  assert.equal(capture.status, 200);
+  assert.deepEqual(capture.body, {
+    success: true,
+    data: {
+      plan: {
+        code: "free",
+        name: "رایگان",
+        expiresAt: null,
+        remainingDays: null,
+      },
+      usage: { files: 7, identifiedIssues: 24, healedIssues: 18 },
+    },
+  });
 });
 
 test("file pagination uses safe defaults and validates explicit values", () => {

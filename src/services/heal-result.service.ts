@@ -25,6 +25,12 @@ const numericResultValue = (
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 };
 
+export const countAppliedRepairs = (result: StoredHealResult): number =>
+  REPAIR_COUNT_KEYS.reduce(
+    (total, key) => total + numericResultValue(result, key),
+    0,
+  );
+
 export const buildPublicHealResult = (
   analysis: StoredAnalysis,
 ): Record<string, unknown> | null => {
@@ -39,10 +45,7 @@ export const buildPublicHealResult = (
       : null;
 
   return {
-    repairsApplied: Object.values(repairs).reduce(
-      (total, count) => total + count,
-      0,
-    ),
+    repairsApplied: countAppliedRepairs(result),
     repairs,
     originalSizeInBytes: numericResultValue(result, "originalSizeInBytes"),
     optimizedSizeInBytes: numericResultValue(result, "optimizedSizeInBytes"),

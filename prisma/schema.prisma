@@ -21,18 +21,22 @@ model User {
 }
 
 model UploadedFile {
-  id             String   @id @db.Uuid
-  userId         String   @map("user_id") @db.Uuid
-  name           String   @db.VarChar(150)
-  originalName   String   @map("original_name") @db.VarChar(255)
-  storedFileName String   @map("stored_file_name") @db.VarChar(255)
-  storagePath    String   @map("storage_path")
-  mimeType       String   @map("mime_type") @db.VarChar(100)
-  sizeInBytes    Int      @map("size_in_bytes")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-  user           User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  id               String   @id @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  name             String   @db.VarChar(150)
+  originalName     String   @map("original_name") @db.VarChar(255)
+  storedFileName   String   @map("stored_file_name") @db.VarChar(255)
+  storagePath      String   @map("storage_path")
+  mimeType         String   @map("mime_type") @db.VarChar(100)
+  sizeInBytes      Int      @map("size_in_bytes")
+  healStatus       String   @default("dry-run-complete") @map("heal_status") @db.VarChar(24)
+  identifiedIssues Int      @default(0) @map("identified_issues")
+  healedIssues     Int      @default(0) @map("healed_issues")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user             User     @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   @@index([userId, createdAt])
+  @@index([userId, healStatus])
   @@map("uploaded_files")
 }
