@@ -9,6 +9,8 @@
     "src/controllers/upload.controller.ts",
     "src/controllers/upload.controller.integration.test.ts",
     "src/controllers/heal-status.controller.integration.test.ts",
+    "src/controllers/file.controller.ts",
+    "src/controllers/file.controller.test.ts",
     "src/middlewares/**/*.ts",
     "src/routes/upload.route.ts",
     "src/services/**/*.ts",
@@ -16,9 +18,5 @@
     "src/types/mapshaper.d.ts",
     "src/workers/gis.worker.ts"
   ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "dist-test"
-  ]
+  "exclude": ["node_modules", "dist", "dist-test"]
 }

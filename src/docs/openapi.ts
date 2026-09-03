@@ -17,6 +17,7 @@ export const openApiDocument = {
     { name: "System", description: "Service health" },
     { name: "Authentication", description: "Account and session lifecycle" },
     { name: "Topology", description: "GIS validation and healing workflow" },
+    { name: "Files", description: "Authenticated file ownership and management" },
   ],
   paths: {
     "/health": {
@@ -180,6 +181,98 @@ export const openApiDocument = {
         },
       },
     },
+    "/files": {
+      get: {
+        tags: ["Files"],
+        summary: "List files owned by the authenticated user",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          {
+            name: "skip",
+            in: "query",
+            schema: { type: "integer", minimum: 0, default: 0 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", minimum: 1, maximum: 50, default: 10 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Current user's file page",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/FileListResponse" },
+              },
+            },
+          },
+          ...errorResponses,
+        },
+      },
+    },
+    "/files/{fileId}": {
+      parameters: [{ $ref: "#/components/parameters/FileId" }],
+      get: {
+        tags: ["Files"],
+        summary: "Get an owned file with its analysis and healing details",
+        security: [{ bearerAuth: [] }],
+        responses: {
+          "200": {
+            description: "Owned file detail",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/FileDetailResponse" },
+              },
+            },
+          },
+          "404": { $ref: "#/components/responses/NotFound" },
+          ...errorResponses,
+        },
+      },
+      patch: {
+        tags: ["Files"],
+        summary: "Rename an owned file",
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  name: { type: "string", minLength: 2, maxLength: 150 },
+                },
+                required: ["name"],
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Renamed file summary",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/FileSummaryResponse" },
+              },
+            },
+          },
+          "404": { $ref: "#/components/responses/NotFound" },
+          ...errorResponses,
+        },
+      },
+      delete: {
+        tags: ["Files"],
+        summary: "Delete an owned file and its managed artifacts",
+        security: [{ bearerAuth: [] }],
+        responses: {
+          "204": { description: "File deleted" },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "409": { description: "Healing is queued or processing" },
+          ...errorResponses,
+        },
+      },
+    },
     "/heal/{jobId}": {
       parameters: [{ $ref: "#/components/parameters/JobId" }],
       post: {
@@ -249,6 +342,12 @@ export const openApiDocument = {
     parameters: {
       JobId: {
         name: "jobId",
+        in: "path",
+        required: true,
+        schema: { type: "string", format: "uuid" },
+      },
+      FileId: {
+        name: "fileId",
         in: "path",
         required: true,
         schema: { type: "string", format: "uuid" },
@@ -330,6 +429,80 @@ export const openApiDocument = {
               },
             },
             required: ["jobId", "userId", "name", "status", "report", "heal"],
+          },
+        },
+        required: ["success", "data"],
+      },
+      FileSummary: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          name: { type: "string" },
+          originalName: { type: "string" },
+          sizeInBytes: { type: "integer" },
+          uploadedAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          status: {
+            type: "string",
+            enum: ["dry-run-complete", "queued", "processing", "completed", "failed", "unavailable"],
+          },
+          isHealed: { type: "boolean" },
+          issuesFound: { type: "integer", nullable: true },
+        },
+        required: ["id", "name", "originalName", "sizeInBytes", "uploadedAt", "updatedAt", "status", "isHealed", "issuesFound"],
+      },
+      FileSummaryResponse: {
+        type: "object",
+        properties: {
+          success: { type: "boolean", example: true },
+          data: { $ref: "#/components/schemas/FileSummary" },
+        },
+        required: ["success", "data"],
+      },
+      FileListResponse: {
+        type: "object",
+        properties: {
+          success: { type: "boolean", example: true },
+          data: {
+            type: "object",
+            properties: {
+              items: {
+                type: "array",
+                items: { $ref: "#/components/schemas/FileSummary" },
+              },
+              pagination: {
+                type: "object",
+                properties: {
+                  skip: { type: "integer" },
+                  limit: { type: "integer" },
+                  total: { type: "integer" },
+                  hasMore: { type: "boolean" },
+                },
+                required: ["skip", "limit", "total", "hasMore"],
+              },
+            },
+            required: ["items", "pagination"],
+          },
+        },
+        required: ["success", "data"],
+      },
+      FileDetailResponse: {
+        type: "object",
+        properties: {
+          success: { type: "boolean", example: true },
+          data: {
+            allOf: [
+              { $ref: "#/components/schemas/FileSummary" },
+              {
+                type: "object",
+                properties: {
+                  mimeType: { type: "string" },
+                  report: { type: "object", nullable: true, additionalProperties: true },
+                  healing: { type: "object", additionalProperties: true },
+                },
+                required: ["mimeType", "report", "healing"],
+              },
+            ],
           },
         },
         required: ["success", "data"],

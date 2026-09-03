@@ -7,6 +7,7 @@ import { router as authRouter } from "./routes/auth.route";
 import { globalErrorHandler } from "./middlewares/errorHandler";
 import { router as uploadRouter } from "./routes/upload.route";
 import { router as healRouter } from "./routes/heal.route";
+import { router as fileRouter } from "./routes/file.route";
 import { openApiDocument } from "./docs/openapi";
 import { AppError } from "./middlewares/errorHandler";
 
@@ -44,6 +45,7 @@ app.use(
 app.use("/api/auth", authRouter);
 app.use("/api/upload", uploadRouter);
 app.use("/api/heal", healRouter);
+app.use("/api/files", fileRouter);
 
 app.get(["/health", "/api/health"], (_req, res) => {
   res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
