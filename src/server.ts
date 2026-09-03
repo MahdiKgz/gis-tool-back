@@ -5,6 +5,7 @@ import { connectAuthRedis, authRedis } from "./services/auth-redis.service";
 import { database, initializeDatabase } from "./services/database.service";
 import { getAccessTokenSecret } from "./config/auth.config";
 import { gisQueue, redisConnection } from "./services/queue.service";
+import { closeHealingEventSource } from "./services/heal-event.service";
 
 const PORT = process.env.PORT || 3000;
 
@@ -26,6 +27,7 @@ const bootstrap = async () => {
       await Promise.allSettled([
         gisWorker.close(),
         gisQueue.close(),
+        closeHealingEventSource(),
         redisConnection.quit(),
         authRedis.quit(),
         database.$disconnect(),

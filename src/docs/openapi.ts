@@ -315,6 +315,28 @@ export const openApiDocument = {
         },
       },
     },
+    "/heal/{jobId}/events": {
+      get: {
+        tags: ["Topology"],
+        summary: "Stream healing lifecycle events",
+        description:
+          "Authenticated SSE stream. Emits snapshot, progress, completed, and failed events, plus heartbeat comments every 20 seconds.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ $ref: "#/components/parameters/JobId" }],
+        responses: {
+          "200": {
+            description: "Healing lifecycle event stream",
+            content: {
+              "text/event-stream": {
+                schema: { type: "string" },
+              },
+            },
+          },
+          "404": { $ref: "#/components/responses/NotFound" },
+          ...errorResponses,
+        },
+      },
+    },
     "/heal/{jobId}/output": {
       get: {
         tags: ["Topology"],
@@ -569,10 +591,32 @@ export const openApiDocument = {
           completedAt: { type: "string", format: "date-time", nullable: true },
           failedAt: { type: "string", format: "date-time", nullable: true },
           error: { type: "string", nullable: true },
+          progressDetail: {
+            type: "object",
+            nullable: true,
+            properties: {
+              value: { type: "number", minimum: 0, maximum: 100 },
+              stage: {
+                type: "string",
+                enum: ["parsing", "error-detection", "healing", "report-generation"],
+              },
+              issueCounts: {
+                type: "object",
+                properties: {
+                  gap: { type: "integer", minimum: 0 },
+                  sliver: { type: "integer", minimum: 0 },
+                  kink: { type: "integer", minimum: 0 },
+                  spike: { type: "integer", minimum: 0 },
+                },
+                required: ["gap", "sliver", "kink", "spike"],
+              },
+            },
+            required: ["value", "stage", "issueCounts"],
+          },
           result: { type: "object", nullable: true, additionalProperties: true },
           links: { type: "object", additionalProperties: { type: "string" } },
         },
-        required: ["jobId", "dryRunJobId", "status", "progress", "links"],
+        required: ["jobId", "dryRunJobId", "status", "progress", "progressDetail", "links"],
       },
     },
     responses: {

@@ -160,15 +160,28 @@ state.
 ## 3. Track healing
 
 ```http
-GET /heal/:jobId
+GET /heal/:jobId/events
+Accept: text/event-stream
+Authorization: Bearer <access-token>
 ```
 
-The endpoint returns one of `dry-run-complete`, `queued`, `processing`,
-`completed`, or `failed`, together with numeric progress and lifecycle
-timestamps. Clients can poll this endpoint while the status is queued or
-processing.
+The SSE stream immediately emits a `snapshot`, followed by `progress` events
+and one terminal `completed` or `failed` event. Each data event has an
+incrementing connection-local ID. An empty `: heartbeat` comment is written
+every 20 seconds to prevent idle proxy timeouts.
 
-Completed responses include a public repair summary and job-scoped links. The
+Progress events identify the active `parsing`, `error-detection`, `healing`,
+or `report-generation` stage and include live `gap`, `sliver`, `kink`, and
+`spike` counts. The response body otherwise uses the same lifecycle shape as
+the compatibility `GET /heal/:jobId` snapshot endpoint.
+
+The browser client consumes this stream with authenticated `fetch` rather
+than native `EventSource`, because the latter cannot attach the Bearer access
+token. It reconnects after transient disconnections and sends the most recent
+event ID in `Last-Event-ID`; persisted replay is intentionally deferred until
+long-running CAD jobs are introduced.
+
+Completed events include a public repair summary and job-scoped links. The
 server-side output path is never exposed:
 
 ```json

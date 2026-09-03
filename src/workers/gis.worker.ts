@@ -59,6 +59,10 @@ import {
 } from "../services/analysis-store.service";
 import { GisJobData } from "../types/gis-job";
 import { countAppliedRepairs } from "../services/heal-result.service";
+import {
+  createHealingProgress,
+  parseHealingProgress,
+} from "../services/heal-progress.service";
 import { updateUploadHealingMetrics } from "../services/upload-record.service";
 const mapshaper = require("mapshaper");
 
@@ -800,7 +804,7 @@ export const gisWorker = new Worker(
       throw new Error(`File not found: ${filePath}`);
 
     const ext = path.extname(originalName).toLowerCase();
-    await job.updateProgress(10);
+    await job.updateProgress(createHealingProgress(10, "parsing"));
     let geojson: any = await readGisFile(filePath, originalName);
 
     // GEO-010 is the first semantic gate. Invalid feature geometries are
@@ -1059,7 +1063,12 @@ export const gisWorker = new Worker(
         quarantinedFeatureIndexes.has(featureIndex),
     );
 
-    await job.updateProgress(20);
+    await job.updateProgress(
+      createHealingProgress(20, "error-detection", {
+        sliver: inputSliverCount,
+        spike: spikeValidationReport.spikesFound,
+      }),
+    );
 
     const polyFeatures = geojson.features.filter(
       (f: any, featureIndex: number) =>
@@ -1107,9 +1116,19 @@ export const gisWorker = new Worker(
       );
     }
 
-    await job.updateProgress(25);
+    await job.updateProgress(
+      createHealingProgress(25, "error-detection", {
+        sliver: inputSliverCount,
+        spike: spikeValidationReport.spikesFound,
+      }),
+    );
 
-    await job.updateProgress(30);
+    await job.updateProgress(
+      createHealingProgress(30, "healing", {
+        sliver: inputSliverCount,
+        spike: spikeValidationReport.spikesFound,
+      }),
+    );
 
     const lineTopologyResult = processLineTopology(
       featureCollection(lineFeatures),
@@ -1128,7 +1147,12 @@ export const gisWorker = new Worker(
     ).size;
     const processedLines = lineTopologyResult.geojson;
 
-    await job.updateProgress(40);
+    await job.updateProgress(
+      createHealingProgress(40, "healing", {
+        sliver: inputSliverCount,
+        spike: spikeValidationReport.spikesFound,
+      }),
+    );
 
     // Overlap healing must run before kink detection — overlapping polygons
     // can produce false kink reports.
@@ -1151,7 +1175,12 @@ export const gisWorker = new Worker(
       );
     }
 
-    await job.updateProgress(50);
+    await job.updateProgress(
+      createHealingProgress(50, "healing", {
+        sliver: inputSliverCount,
+        spike: spikeValidationReport.spikesFound,
+      }),
+    );
 
     let kinkCount = 0;
     let healedPolysList: any[] = [];
@@ -1166,7 +1195,13 @@ export const gisWorker = new Worker(
       }
     }
 
-    await job.updateProgress(60);
+    await job.updateProgress(
+      createHealingProgress(60, "healing", {
+        kink: kinkCount,
+        sliver: inputSliverCount,
+        spike: spikeValidationReport.spikesFound,
+      }),
+    );
 
     // rewind MUST run before the featureCollection snapshot — otherwise
     // Mapshaper receives un-rewound polygons and silently drops holes.
@@ -1205,7 +1240,14 @@ export const gisWorker = new Worker(
       gapsClosed = mapshaperOutput.gapsClosed;
     }
 
-    await job.updateProgress(80);
+    await job.updateProgress(
+      createHealingProgress(80, "report-generation", {
+        gap: gapsFound,
+        kink: kinkCount,
+        sliver: inputSliverCount,
+        spike: spikeValidationReport.spikesFound,
+      }),
+    );
 
     geojson.features = [
       ...processedLines.features,
@@ -1224,7 +1266,14 @@ export const gisWorker = new Worker(
     fs.writeFileSync(outputFilePath, JSON.stringify(optimizedGeojson));
 
     const newSize = fs.statSync(outputFilePath).size;
-    await job.updateProgress(100);
+    await job.updateProgress(
+      createHealingProgress(100, "report-generation", {
+        gap: gapsFound,
+        kink: kinkCount,
+        sliver: inputSliverCount,
+        spike: spikeValidationReport.spikesFound,
+      }),
+    );
 
     return {
       success: true,
@@ -1380,15 +1429,17 @@ gisWorker.on("active", (job) => {
 
 gisWorker.on("progress", (job, progress) => {
   const jobId = String(job.id);
+  const detailedProgress = parseHealingProgress(progress);
   const numericProgress =
-    typeof progress === "number"
+    detailedProgress?.value ??
+    (typeof progress === "number"
       ? progress
       : typeof progress === "object" &&
-          progress !== null &&
-          "value" in progress &&
-          typeof progress.value === "number"
+            progress !== null &&
+            "value" in progress &&
+            typeof progress.value === "number"
         ? progress.value
-        : 0;
+        : 0);
   persistLifecycle(
     markAnalysisProgress(jobId, numericProgress),
     "progress",
