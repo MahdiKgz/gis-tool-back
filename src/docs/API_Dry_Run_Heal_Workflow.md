@@ -166,8 +166,9 @@ Authorization: Bearer <access-token>
 ```
 
 The SSE stream immediately emits a `snapshot`, followed by `progress` events
-and one terminal `completed` or `failed` event. Each data event has an
-incrementing connection-local ID. An empty `: heartbeat` comment is written
+and one terminal `completed`, `failed`, or `cancelled` event. Each data event has an
+incrementing per-job ID. The latest 100 events are retained in Redis for 24 hours;
+a reconnect with `Last-Event-ID` receives every retained event after that ID. An empty `: heartbeat` comment is written
 every 20 seconds to prevent idle proxy timeouts.
 
 Progress events identify the active `parsing`, `error-detection`, `healing`,
@@ -178,8 +179,7 @@ the compatibility `GET /heal/:jobId` snapshot endpoint.
 The browser client consumes this stream with authenticated `fetch` rather
 than native `EventSource`, because the latter cannot attach the Bearer access
 token. It reconnects after transient disconnections and sends the most recent
-event ID in `Last-Event-ID`; persisted replay is intentionally deferred until
-long-running CAD jobs are introduced.
+event ID in `Last-Event-ID`.
 
 Completed events include a public repair summary and job-scoped links. The
 server-side output path is never exposed:
@@ -208,10 +208,11 @@ server-side output path is never exposed:
 }
 ```
 
-## 4. Preview and download
+## 4. Preview, compare, and download
 
 ```http
 GET /heal/:jobId/output
+GET /heal/:jobId/original
 GET /heal/:jobId/download
 ```
 
@@ -220,6 +221,15 @@ serves the same bytes with an attachment disposition and the cleaned file
 name. Both endpoints require a completed manifest, validate that the stored
 file is inside `uploads/cleaned_files`, and return `410 OUTPUT_FILE_EXPIRED`
 after cleanup removes it.
+
+`original` converts the retained source upload to GeoJSON without changing it,
+allowing the map to overlay the pre-healing geometry. Manual-review decisions
+are persisted with `PATCH /heal/:jobId/reviews/:issueIndex` and one of the
+`approved`, `rejected`, or `manual-edit` actions.
+
+Queued and active jobs can be cancelled with `POST /heal/:jobId/cancel`.
+Waiting jobs are removed from BullMQ and active workers check the cancellation
+flag at pipeline boundaries and during feature loops before publishing output.
 
 Possible errors include:
 

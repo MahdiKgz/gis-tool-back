@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   getAnalysis,
+  markAnalysisCancelled,
   markAnalysisCompleted,
   markAnalysisFailed,
   markAnalysisProcessing,
@@ -12,6 +13,7 @@ import {
   markAnalysisQueued,
   resetAnalysisQueueRequest,
   saveAnalysis,
+  saveManualReviewDecision,
 } from "./analysis-store.service";
 import { DryRunReport } from "./dry-run.service";
 
@@ -70,11 +72,7 @@ test("persists and marks a dry-run record as queued", async (t) => {
   const loaded = await getAnalysis(saved.id, storeDirectory);
 
   assert.deepEqual(loaded, saved);
-  const queued = await markAnalysisQueued(
-    saved,
-    saved.id,
-    storeDirectory,
-  );
+  const queued = await markAnalysisQueued(saved, saved.id, storeDirectory);
   assert.equal(queued.queueJobId, saved.id);
   assert.ok(queued.queuedAt);
   assert.equal(queued.healStatus, "queued");
@@ -148,6 +146,42 @@ test("resets a terminal failure so healing can be queued again", async (t) => {
   assert.equal(reset?.queueJobId, null);
   assert.equal(reset?.healError, null);
   assert.equal(reset?.healProgress, 0);
+});
+
+test("keeps cancellation terminal and persists manual-review decisions", async (t) => {
+  const storeDirectory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "snapgis-analysis-cancel-"),
+  );
+  t.after(() => fs.rm(storeDirectory, { recursive: true, force: true }));
+  const saved = await saveAnalysis(
+    {
+      fileName: "stored.geojson",
+      originalName: "source.geojson",
+      filePath: "/tmp/source.geojson",
+      size: 12,
+      tolerance: 25,
+    },
+    emptyReport,
+    storeDirectory,
+  );
+  await markAnalysisQueued(saved, saved.id, storeDirectory);
+  await markAnalysisCancelled(saved.id, storeDirectory);
+  await markAnalysisProgress(saved.id, 90, storeDirectory);
+  await markAnalysisCompleted(saved.id, { gapsClosed: 1 }, storeDirectory);
+  const reviewed = await saveManualReviewDecision(
+    saved.id,
+    4,
+    "approved",
+    storeDirectory,
+  );
+
+  assert.equal(reviewed?.healStatus, "cancelled");
+  assert.equal(reviewed?.healResult, null);
+  assert.equal(reviewed?.reviewDecisions?.["4"]?.action, "approved");
+
+  const reset = await resetAnalysisQueueRequest(saved.id, storeDirectory);
+  assert.equal(reset?.healStatus, "dry-run-complete");
+  assert.equal(reset?.queueJobId, null);
 });
 
 test("rejects invalid IDs instead of resolving arbitrary paths", async () => {

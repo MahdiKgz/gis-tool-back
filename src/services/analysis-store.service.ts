@@ -9,7 +9,15 @@ export type HealStatus =
   | "queued"
   | "processing"
   | "completed"
-  | "failed";
+  | "failed"
+  | "cancelled";
+
+export type ManualReviewAction = "approved" | "rejected" | "manual-edit";
+
+export interface StoredManualReviewDecision {
+  action: ManualReviewAction;
+  updatedAt: string;
+}
 
 export interface StoredHealResult extends Record<string, unknown> {
   outputFileName?: string;
@@ -29,6 +37,7 @@ export interface StoredAnalysis {
   healFailedAt: string | null;
   healResult: StoredHealResult | null;
   healError: string | null;
+  reviewDecisions?: Record<string, StoredManualReviewDecision>;
   jobData: GisJobData;
   report: DryRunReport;
 }
@@ -59,6 +68,7 @@ const normalizeRecord = (record: StoredAnalysis): StoredAnalysis => ({
   healFailedAt: record.healFailedAt ?? null,
   healResult: record.healResult ?? null,
   healError: record.healError ?? null,
+  reviewDecisions: record.reviewDecisions ?? {},
 });
 
 const writeAnalysis = async (
@@ -123,6 +133,7 @@ export const saveAnalysis = async (
     healFailedAt: null,
     healResult: null,
     healError: null,
+    reviewDecisions: {},
     jobData,
     report,
   };
@@ -143,11 +154,7 @@ export const getAnalysis = async (
   try {
     contents = await fs.readFile(analysisPath(id, storeDirectory), "utf8");
   } catch (error) {
-    if (
-      error instanceof Error &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return null;
     }
     throw error;
@@ -193,7 +200,9 @@ export const resetAnalysisQueueRequest = async (
   updateAnalysis(
     id,
     (current) =>
-      current.healStatus !== "queued" && current.healStatus !== "failed"
+      current.healStatus !== "queued" &&
+      current.healStatus !== "failed" &&
+      current.healStatus !== "cancelled"
         ? current
         : {
             ...current,
@@ -217,7 +226,7 @@ export const markAnalysisProcessing = async (
   updateAnalysis(
     id,
     (current) =>
-      current.healStatus === "completed"
+      current.healStatus === "completed" || current.healStatus === "cancelled"
         ? current
         : {
             ...current,
@@ -241,7 +250,9 @@ export const markAnalysisProgress = async (
   return updateAnalysis(
     id,
     (current) =>
-      current.healStatus === "completed" || current.healStatus === "failed"
+      current.healStatus === "completed" ||
+      current.healStatus === "failed" ||
+      current.healStatus === "cancelled"
         ? current
         : {
             ...current,
@@ -260,16 +271,19 @@ export const markAnalysisCompleted = async (
 ): Promise<StoredAnalysis | null> =>
   updateAnalysis(
     id,
-    (current) => ({
-      ...current,
-      healStatus: "completed",
-      healProgress: 100,
-      healStartedAt: current.healStartedAt ?? new Date().toISOString(),
-      healCompletedAt: new Date().toISOString(),
-      healFailedAt: null,
-      healResult: result,
-      healError: null,
-    }),
+    (current) =>
+      current.healStatus === "cancelled"
+        ? current
+        : {
+            ...current,
+            healStatus: "completed",
+            healProgress: 100,
+            healStartedAt: current.healStartedAt ?? new Date().toISOString(),
+            healCompletedAt: new Date().toISOString(),
+            healFailedAt: null,
+            healResult: result,
+            healError: null,
+          },
     storeDirectory,
   );
 
@@ -281,7 +295,7 @@ export const markAnalysisFailed = async (
   updateAnalysis(
     id,
     (current) =>
-      current.healStatus === "completed"
+      current.healStatus === "completed" || current.healStatus === "cancelled"
         ? current
         : {
             ...current,
@@ -289,5 +303,41 @@ export const markAnalysisFailed = async (
             healFailedAt: new Date().toISOString(),
             healError: message,
           },
+    storeDirectory,
+  );
+
+export const markAnalysisCancelled = async (
+  id: string,
+  storeDirectory = DEFAULT_STORE_DIRECTORY,
+): Promise<StoredAnalysis | null> =>
+  updateAnalysis(
+    id,
+    (current) =>
+      current.healStatus === "completed"
+        ? current
+        : {
+            ...current,
+            healStatus: "cancelled",
+            healFailedAt: null,
+            healError: null,
+          },
+    storeDirectory,
+  );
+
+export const saveManualReviewDecision = async (
+  id: string,
+  issueIndex: number,
+  action: ManualReviewAction,
+  storeDirectory = DEFAULT_STORE_DIRECTORY,
+): Promise<StoredAnalysis | null> =>
+  updateAnalysis(
+    id,
+    (current) => ({
+      ...current,
+      reviewDecisions: {
+        ...(current.reviewDecisions ?? {}),
+        [String(issueIndex)]: { action, updatedAt: new Date().toISOString() },
+      },
+    }),
     storeDirectory,
   );
