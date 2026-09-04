@@ -97,7 +97,12 @@ export const detectSlivers = (
           detectionReasons,
           thresholdM2: options.sliverAreaThresholdM2,
           minCompactness,
-          repairable: false,
+          // Removing a component is deterministic only when it is below the
+          // configured minimum mapping area. Compactness-only findings can be
+          // legitimate narrow parcels and remain report-only.
+          repairable:
+            component.geometryCollectionPath.length === 0 &&
+            detectionReasons.includes("Area"),
         });
       } catch {
         // Earlier validation stages own malformed polygon reporting.

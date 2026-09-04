@@ -89,7 +89,7 @@ export const detectCoordinatePrecision = (
         coordinatePath: [...candidate.coordinatePath],
         relatedCoordinatePath: null,
         maxDecimalPlaces: options.maxDecimalPlaces,
-        repairable: false as const,
+        repairable: false,
       };
 
       position.forEach((value, ordinateIndex) => {
@@ -155,5 +155,22 @@ export const detectCoordinatePrecision = (
     });
   });
 
-  return { positionsScanned, findings };
+  const unsafeFeatureIndexes = new Set(
+    findings
+      .filter(
+        (finding) =>
+          finding.code === "ROUNDING_COLLISION" ||
+          finding.code === "UNSAFE_COORDINATE_MAGNITUDE",
+      )
+      .map((finding) => finding.featureIndex),
+  );
+  return {
+    positionsScanned,
+    findings: findings.map((finding) => ({
+      ...finding,
+      repairable:
+        finding.code === "EXCESSIVE_COORDINATE_PRECISION" &&
+        !unsafeFeatureIndexes.has(finding.featureIndex),
+    })),
+  };
 };

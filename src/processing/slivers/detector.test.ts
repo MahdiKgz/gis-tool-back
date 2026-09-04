@@ -46,7 +46,7 @@ test("detects positive-area polygon features below the worker threshold", () => 
   assert.equal(result.findings.length, 1);
   assert.equal(result.findings[0]?.featureId, "sliver");
   assert.equal(result.findings[0]?.code, "SLIVER_POLYGON");
-  assert.equal(result.findings[0]?.repairable, false);
+  assert.equal(result.findings[0]?.repairable, true);
 });
 
 test("derives the same sliver threshold used by healing", () => {
@@ -75,6 +75,7 @@ test("detects a long narrow polygon by compactness independent of area", () => {
   assert.ok(finding.areaM2 > 1_000);
   assert.ok(finding.compactness < 0.1);
   assert.deepEqual(finding.detectionReasons, ["Compactness"]);
+  assert.equal(finding.repairable, false);
 });
 
 test("rejects invalid sliver thresholds", () => {

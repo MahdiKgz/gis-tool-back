@@ -3,6 +3,7 @@ import { FeatureCollectionLike } from "../shared/geojson";
 
 export interface GapOptions {
   gapToleranceMeters: number;
+  minimumGapWidthMeters?: number;
   maxInferredGapWidthMeters?: number;
   maxGapWidthToSharedBoundaryRatio?: number;
   minSharedBoundaryRatio?: number;
@@ -45,13 +46,15 @@ export interface GapValidationReport {
   polygonComponentsScanned: number;
   candidatePairsChecked: number;
   gapsFound: number;
+  gapsRepaired: number;
   unresolvedIssues: number;
   unresolvedFeatureIndexes: number[];
   appliedGapToleranceMeters: number;
+  appliedMinimumGapWidthMeters: number;
   issues: Array<
     GapFinding & {
-      status: "Unresolved";
-      recommendedAction: "AutoRepair" | "ManualReview";
+      status: "Repaired" | "Unresolved";
+      recommendedAction: "None" | "AutoRepair" | "ManualReview";
     }
   >;
 }

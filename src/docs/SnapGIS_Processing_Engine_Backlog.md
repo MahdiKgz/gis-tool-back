@@ -25,7 +25,7 @@
 -   [x] Polygon Overlap Detection
 -   [x] Multi-pass Overlap Repair
 -   [x] Gap Detection, Dry-Run Reporting, and Repair Integration
--   [x] Sliver Detection and Dry-Run Reporting
+-   [x] Sliver Detection, Dry-Run Reporting, and Minimum-Area Repair
 -   [x] Undershoot Detection, Dry-Run Reporting, and Repair
 -   [x] Overshoot Detection, Dry-Run Reporting, and Repair
 -   [x] Duplicate Polygon Detection
@@ -135,6 +135,16 @@
 
 -   [x] Coordinate precision
 -   [x] Floating point robustness
+
+## Gap and Sliver Repair Hardening
+
+-   [x] Repair complete, parallel exterior gap edges on a neutral midpoint
+-   [x] Separate the accepted gap width from the 3x repair radius
+-   [x] Reject partial-edge and corner-only gap repair candidates
+-   [x] Remove minimum-area Polygon and MultiPolygon sliver components
+-   [x] Preserve compactness-only narrow parcels for manual review
+-   [x] Keep high-precision safe features eligible for topology healing
+-   [x] Add a 50 mm cadastral regression fixture
 
 # Phase 2 --- Advanced Topology
 

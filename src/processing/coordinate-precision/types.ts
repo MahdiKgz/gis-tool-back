@@ -22,7 +22,7 @@ export interface CoordinatePrecisionFinding {
   roundedValue: number | null;
   decimalPlaces: number | null;
   maxDecimalPlaces: number;
-  repairable: false;
+  repairable: boolean;
 }
 
 export interface CoordinatePrecisionDetectionResult {
@@ -43,7 +43,7 @@ export interface CoordinatePrecisionValidationReport {
   issues: Array<
     CoordinatePrecisionFinding & {
       status: "Unresolved";
-      recommendedAction: "ManualReview";
+      recommendedAction: "AutoRepair" | "ManualReview";
     }
   >;
 }

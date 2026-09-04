@@ -41,6 +41,7 @@ const emptyReport = {
     sliverAreaThresholdM2: 0.0625,
     sliverMinCompactness: 0.1,
     gapToleranceMeters: 0.075,
+    minimumGapWidthMeters: 0.025,
     maxInferredGapWidthMeters: 50,
     lineTopologyToleranceMeters: 0.025,
     maxInferredLineErrorMeters: 100,
