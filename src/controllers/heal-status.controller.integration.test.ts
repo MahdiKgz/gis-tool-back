@@ -5,6 +5,7 @@ import test from "node:test";
 import { EventEmitter } from "node:events";
 import { NextFunction, Request, Response } from "express";
 import {
+  getAnalysis,
   markAnalysisCompleted,
   saveAnalysis,
   type StoredAnalysis,
@@ -14,7 +15,9 @@ import {
   downloadHealedOutput,
   createHealEventStream,
   getHealStatus,
+  previewOriginalInput,
   previewHealedOutput,
+  updateManualReview,
 } from "./heal-status.controller";
 import type { HealingQueueEvent } from "../services/heal-event.service";
 
@@ -68,6 +71,7 @@ test("serves completed status, preview GeoJSON, and attachment download", async 
   const outputFilePath = path.join(outputDirectory, outputFileName);
   const output = { type: "FeatureCollection", features: [] };
   await fs.mkdir(outputDirectory, { recursive: true });
+  await fs.writeFile(analysis.jobData.filePath, JSON.stringify(output), "utf8");
   await fs.writeFile(outputFilePath, JSON.stringify(output), "utf8");
   await markAnalysisCompleted(analysis.id, {
     outputFileName,
@@ -78,10 +82,10 @@ test("serves completed status, preview GeoJSON, and attachment download", async 
   });
   t.after(async () => {
     await fs.rm(outputFilePath, { force: true });
-    await fs.rm(
-      path.resolve("uploads/gis_analyses", `${analysis.id}.json`),
-      { force: true },
-    );
+    await fs.rm(analysis.jobData.filePath, { force: true });
+    await fs.rm(path.resolve("uploads/gis_analyses", `${analysis.id}.json`), {
+      force: true,
+    });
   });
 
   const request = {
@@ -143,6 +147,23 @@ test("serves completed status, preview GeoJSON, and attachment download", async 
   assert.equal(previewType, "application/geo+json");
   assert.equal(previewPath, outputFilePath);
   assert.deepEqual(JSON.parse(await fs.readFile(previewPath, "utf8")), output);
+
+  let originalBody: unknown;
+  const originalResponse = {
+    type() {
+      return this;
+    },
+    status(code: number) {
+      assert.equal(code, 200);
+      return this;
+    },
+    json(body: unknown) {
+      originalBody = body;
+      return this;
+    },
+  } as unknown as Response;
+  await previewOriginalInput(request, originalResponse, next);
+  assert.deepEqual(originalBody, output);
 
   let downloadedPath = "";
   let downloadedName = "";
@@ -230,6 +251,7 @@ test("streams heartbeat, staged progress, and the completed healing result", asy
   assert.ok(listener);
   await new Promise((resolve) => setTimeout(resolve, 12));
   listener({
+    id: "2",
     type: "progress",
     data: {
       value: 60,
@@ -238,6 +260,7 @@ test("streams heartbeat, staged progress, and the completed healing result", asy
     },
   });
   listener({
+    id: "3",
     type: "completed",
     result: {
       gapsClosed: 1,
@@ -257,4 +280,171 @@ test("streams heartbeat, staged progress, and the completed healing result", asy
   assert.match(stream, /event: completed/);
   assert.match(stream, /"status":"completed"/);
   assert.equal(ended, true);
+});
+
+test("replays persisted events after Last-Event-ID without emitting a new snapshot", async () => {
+  const analysis = {
+    id: "19c53c73-b994-4723-abf1-ab2f87e05679",
+    ownerId,
+    createdAt: "2026-09-03T10:00:00.000Z",
+    queuedAt: "2026-09-03T10:00:01.000Z",
+    queueJobId: "19c53c73-b994-4723-abf1-ab2f87e05679",
+    healStatus: "processing",
+    healProgress: 60,
+    healStartedAt: "2026-09-03T10:00:02.000Z",
+    healCompletedAt: null,
+    healFailedAt: null,
+    healResult: null,
+    healError: null,
+    jobData: {
+      fileName: "uploaded.geojson",
+      originalName: "parcels.geojson",
+      filePath: "/tmp/uploaded.geojson",
+      size: 12,
+      tolerance: 25,
+    },
+    report: emptyReport,
+  } satisfies StoredAnalysis;
+  const chunks: string[] = [];
+  const request = Object.assign(new EventEmitter(), {
+    params: { jobId: analysis.id },
+    auth: { userId: ownerId, roles: ["user"] },
+    get: (name: string) => (name === "Last-Event-ID" ? "7" : undefined),
+  }) as unknown as Request;
+  const response = {
+    status() {
+      return this;
+    },
+    setHeader() {
+      return this;
+    },
+    flushHeaders() {},
+    write(chunk: string) {
+      chunks.push(chunk);
+      return true;
+    },
+    end() {
+      return this;
+    },
+  } as unknown as Response;
+  let requestedLastEventId = "";
+  const handler = createHealEventStream({
+    getOwnedAnalysis: async () => analysis,
+    subscribe: () => () => undefined,
+    replay: async (_jobId, lastEventId) => {
+      requestedLastEventId = lastEventId;
+      return [
+        {
+          id: "8",
+          type: "progress",
+          data: {
+            value: 75,
+            stage: "report-generation",
+            issueCounts: { gap: 1, sliver: 0, kink: 0, spike: 0 },
+          },
+        },
+        {
+          id: "9",
+          type: "completed",
+          result: {
+            gapsClosed: 1,
+            outputFileName: "cleaned-parcels.geojson",
+            outputFilePath: "/tmp/cleaned-parcels.geojson",
+          },
+        },
+      ];
+    },
+    store: async () => {
+      throw new Error("replay should not create a snapshot");
+    },
+    heartbeatMilliseconds: 60_000,
+  });
+
+  await handler(request, response, ((error?: unknown) => {
+    if (error) throw error;
+  }) as NextFunction);
+
+  const stream = chunks.join("");
+  assert.equal(requestedLastEventId, "7");
+  assert.doesNotMatch(stream, /event: snapshot/);
+  assert.match(stream, /id: 8\nevent: progress/);
+  assert.match(stream, /id: 9\nevent: completed/);
+});
+
+test("persists authenticated manual-review decisions", async (t) => {
+  const analysis = await saveAnalysis(
+    {
+      fileName: "uploaded.geojson",
+      originalName: "parcels.geojson",
+      filePath: "/tmp/uploaded-review.geojson",
+      size: 12,
+      tolerance: 25,
+    },
+    {
+      ...emptyReport,
+      summary: {
+        ...emptyReport.summary,
+        issuesFound: 1,
+        manualReviewIssues: 1,
+      },
+      issues: [
+        {
+          check: "spikes",
+          code: "SPIKE",
+          featureIndex: 0,
+          featureId: "parcel-1",
+          relatedFeatureIndex: null,
+          relatedFeatureId: null,
+          geometryType: "Polygon",
+          location: {
+            geometryCollectionPath: [],
+            relatedGeometryCollectionPath: [],
+            coordinatePath: [0, 1],
+            relatedCoordinatePath: null,
+            polygonPath: [0],
+            relatedPolygonPath: null,
+          },
+          disposition: "ManualReview",
+          details: {},
+        },
+      ],
+    },
+    undefined,
+    ownerId,
+  );
+  t.after(() =>
+    fs.rm(path.resolve("uploads/gis_analyses", `${analysis.id}.json`), {
+      force: true,
+    }),
+  );
+  let body: unknown;
+  await updateManualReview(
+    {
+      params: { jobId: analysis.id, issueIndex: "0" },
+      body: { action: "approved" },
+      auth: { userId: ownerId, roles: ["user"] },
+    } as unknown as Request,
+    {
+      status(code: number) {
+        assert.equal(code, 200);
+        return this;
+      },
+      json(value: unknown) {
+        body = value;
+        return this;
+      },
+    } as unknown as Response,
+    ((error?: unknown) => {
+      if (error) throw error;
+    }) as NextFunction,
+  );
+
+  assert.equal(
+    (body as { data: { decision: { action: string } } }).data.decision.action,
+    "approved",
+  );
+  assert.equal(
+    (await getAnalysis(analysis.id))?.reviewDecisions?.["0"]?.action,
+    "approved",
+  );
 });

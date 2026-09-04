@@ -17,7 +17,10 @@ export const openApiDocument = {
     { name: "System", description: "Service health" },
     { name: "Authentication", description: "Account and session lifecycle" },
     { name: "Topology", description: "GIS validation and healing workflow" },
-    { name: "Files", description: "Authenticated file ownership and management" },
+    {
+      name: "Files",
+      description: "Authenticated file ownership and management",
+    },
   ],
   paths: {
     "/health": {
@@ -59,7 +62,11 @@ export const openApiDocument = {
           "201": { $ref: "#/components/responses/AuthSuccess" },
           "409": {
             description: "Phone already registered",
-            content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/Error" },
+              },
+            },
           },
           "429": { $ref: "#/components/responses/RateLimited" },
           ...errorResponses,
@@ -73,7 +80,9 @@ export const openApiDocument = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/LoginRequest" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/LoginRequest" },
+            },
           },
         },
         responses: {
@@ -123,7 +132,9 @@ export const openApiDocument = {
                     success: { type: "boolean", example: true },
                     data: {
                       type: "object",
-                      properties: { user: { $ref: "#/components/schemas/User" } },
+                      properties: {
+                        user: { $ref: "#/components/schemas/User" },
+                      },
                       required: ["user"],
                     },
                   },
@@ -141,7 +152,8 @@ export const openApiDocument = {
       post: {
         tags: ["Topology"],
         summary: "Upload and dry-run analyze a GIS file",
-        description: "Accepts GeoJSON, JSON, KML, KMZ, SHP, or a ZIP shapefile bundle up to 5 MB. No repair is performed by this request.",
+        description:
+          "Accepts GeoJSON, JSON, KML, KMZ, SHP, or a ZIP shapefile bundle up to 5 MB. No repair is performed by this request.",
         security: [{ bearerAuth: [] }],
         requestBody: {
           required: true,
@@ -154,7 +166,8 @@ export const openApiDocument = {
                     type: "string",
                     minLength: 2,
                     maxLength: 150,
-                    description: "User-facing name for identifying the uploaded dataset",
+                    description:
+                      "User-facing name for identifying the uploaded dataset",
                   },
                   file: { type: "string", format: "binary" },
                   tolerance: {
@@ -173,7 +186,11 @@ export const openApiDocument = {
         responses: {
           "201": {
             description: "Dry run completed",
-            content: { "application/json": { schema: { $ref: "#/components/schemas/UploadResponse" } } },
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/UploadResponse" },
+              },
+            },
           },
           "413": { description: "File is larger than 5 MB" },
           "422": { description: "GIS file could not be parsed" },
@@ -221,7 +238,9 @@ export const openApiDocument = {
             description: "Current plan and persisted upload activity totals",
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/DashboardSummaryResponse" },
+                schema: {
+                  $ref: "#/components/schemas/DashboardSummaryResponse",
+                },
               },
             },
           },
@@ -320,7 +339,7 @@ export const openApiDocument = {
         tags: ["Topology"],
         summary: "Stream healing lifecycle events",
         description:
-          "Authenticated SSE stream. Emits snapshot, progress, completed, and failed events, plus heartbeat comments every 20 seconds.",
+          "Authenticated SSE stream with per-job Redis replay via Last-Event-ID. Emits snapshot, progress, completed, failed, and cancelled events, plus heartbeat comments every 20 seconds.",
         security: [{ bearerAuth: [] }],
         parameters: [{ $ref: "#/components/parameters/JobId" }],
         responses: {
@@ -333,6 +352,76 @@ export const openApiDocument = {
             },
           },
           "404": { $ref: "#/components/responses/NotFound" },
+          ...errorResponses,
+        },
+      },
+    },
+    "/heal/{jobId}/cancel": {
+      post: {
+        tags: ["Topology"],
+        summary: "Cancel queued or active healing",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ $ref: "#/components/parameters/JobId" }],
+        responses: {
+          "200": { $ref: "#/components/responses/HealStatus" },
+          "409": { description: "Healing is not cancellable" },
+          "404": { $ref: "#/components/responses/NotFound" },
+          ...errorResponses,
+        },
+      },
+    },
+    "/heal/{jobId}/original": {
+      get: {
+        tags: ["Topology"],
+        summary: "Preview original input as GeoJSON",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ $ref: "#/components/parameters/JobId" }],
+        responses: {
+          "200": {
+            description: "Original input converted to GeoJSON",
+            content: { "application/geo+json": { schema: { type: "object" } } },
+          },
+          "410": { description: "Source upload has expired" },
+          "404": { $ref: "#/components/responses/NotFound" },
+          ...errorResponses,
+        },
+      },
+    },
+    "/heal/{jobId}/reviews/{issueIndex}": {
+      patch: {
+        tags: ["Topology"],
+        summary: "Record a manual-review decision",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { $ref: "#/components/parameters/JobId" },
+          {
+            name: "issueIndex",
+            in: "path",
+            required: true,
+            schema: { type: "integer", minimum: 0 },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  action: {
+                    type: "string",
+                    enum: ["approved", "rejected", "manual-edit"],
+                  },
+                },
+                required: ["action"],
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Review decision saved" },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "409": { description: "Issue does not require manual review" },
           ...errorResponses,
         },
       },
@@ -364,7 +453,11 @@ export const openApiDocument = {
         responses: {
           "200": {
             description: "GeoJSON attachment",
-            content: { "application/geo+json": { schema: { type: "string", format: "binary" } } },
+            content: {
+              "application/geo+json": {
+                schema: { type: "string", format: "binary" },
+              },
+            },
           },
           "409": { description: "Healing has not completed" },
           "410": { description: "Output has expired" },
@@ -397,8 +490,17 @@ export const openApiDocument = {
       LoginRequest: {
         type: "object",
         properties: {
-          phone: { type: "string", pattern: "^09[0-9]{9}$", example: "09123456789" },
-          password: { type: "string", format: "password", minLength: 8, maxLength: 128 },
+          phone: {
+            type: "string",
+            pattern: "^09[0-9]{9}$",
+            example: "09123456789",
+          },
+          password: {
+            type: "string",
+            format: "password",
+            minLength: 8,
+            maxLength: 128,
+          },
         },
         required: ["phone", "password"],
       },
@@ -407,7 +509,9 @@ export const openApiDocument = {
           { $ref: "#/components/schemas/LoginRequest" },
           {
             type: "object",
-            properties: { name: { type: "string", minLength: 2, maxLength: 100 } },
+            properties: {
+              name: { type: "string", minLength: 2, maxLength: 100 },
+            },
             required: ["name"],
           },
         ],
@@ -430,7 +534,10 @@ export const openApiDocument = {
           data: {
             type: "object",
             properties: {
-              accessToken: { type: "string", description: "Short-lived Bearer access token" },
+              accessToken: {
+                type: "string",
+                description: "Short-lived Bearer access token",
+              },
               user: { $ref: "#/components/schemas/User" },
             },
             required: ["accessToken", "user"],
@@ -465,7 +572,10 @@ export const openApiDocument = {
               report: { type: "object", additionalProperties: true },
               heal: {
                 type: "object",
-                properties: { method: { type: "string" }, path: { type: "string" } },
+                properties: {
+                  method: { type: "string" },
+                  path: { type: "string" },
+                },
               },
             },
             required: ["jobId", "userId", "name", "status", "report", "heal"],
@@ -484,12 +594,29 @@ export const openApiDocument = {
           updatedAt: { type: "string", format: "date-time" },
           status: {
             type: "string",
-            enum: ["dry-run-complete", "queued", "processing", "completed", "failed", "unavailable"],
+            enum: [
+              "dry-run-complete",
+              "queued",
+              "processing",
+              "completed",
+              "failed",
+              "unavailable",
+            ],
           },
           isHealed: { type: "boolean" },
           issuesFound: { type: "integer", nullable: true },
         },
-        required: ["id", "name", "originalName", "sizeInBytes", "uploadedAt", "updatedAt", "status", "isHealed", "issuesFound"],
+        required: [
+          "id",
+          "name",
+          "originalName",
+          "sizeInBytes",
+          "uploadedAt",
+          "updatedAt",
+          "status",
+          "isHealed",
+          "issuesFound",
+        ],
       },
       DashboardSummaryResponse: {
         type: "object",
@@ -503,7 +630,11 @@ export const openApiDocument = {
                 properties: {
                   code: { type: "string", enum: ["free"] },
                   name: { type: "string", example: "رایگان" },
-                  expiresAt: { type: "string", format: "date-time", nullable: true },
+                  expiresAt: {
+                    type: "string",
+                    format: "date-time",
+                    nullable: true,
+                  },
                   remainingDays: { type: "integer", nullable: true },
                 },
                 required: ["code", "name", "expiresAt", "remainingDays"],
@@ -569,7 +700,11 @@ export const openApiDocument = {
                 type: "object",
                 properties: {
                   mimeType: { type: "string" },
-                  report: { type: "object", nullable: true, additionalProperties: true },
+                  report: {
+                    type: "object",
+                    nullable: true,
+                    additionalProperties: true,
+                  },
                   healing: { type: "object", additionalProperties: true },
                 },
                 required: ["mimeType", "report", "healing"],
@@ -584,7 +719,17 @@ export const openApiDocument = {
         properties: {
           jobId: { type: "string", format: "uuid" },
           dryRunJobId: { type: "string", format: "uuid" },
-          status: { type: "string", enum: ["dry-run-complete", "queued", "processing", "completed", "failed"] },
+          status: {
+            type: "string",
+            enum: [
+              "dry-run-complete",
+              "queued",
+              "processing",
+              "completed",
+              "failed",
+              "cancelled",
+            ],
+          },
           progress: { type: "number", minimum: 0, maximum: 100 },
           queuedAt: { type: "string", format: "date-time", nullable: true },
           startedAt: { type: "string", format: "date-time", nullable: true },
@@ -598,7 +743,12 @@ export const openApiDocument = {
               value: { type: "number", minimum: 0, maximum: 100 },
               stage: {
                 type: "string",
-                enum: ["parsing", "error-detection", "healing", "report-generation"],
+                enum: [
+                  "parsing",
+                  "error-detection",
+                  "healing",
+                  "report-generation",
+                ],
               },
               issueCounts: {
                 type: "object",
@@ -613,17 +763,33 @@ export const openApiDocument = {
             },
             required: ["value", "stage", "issueCounts"],
           },
-          result: { type: "object", nullable: true, additionalProperties: true },
+          result: {
+            type: "object",
+            nullable: true,
+            additionalProperties: true,
+          },
           links: { type: "object", additionalProperties: { type: "string" } },
         },
-        required: ["jobId", "dryRunJobId", "status", "progress", "progressDetail", "links"],
+        required: [
+          "jobId",
+          "dryRunJobId",
+          "status",
+          "progress",
+          "progressDetail",
+          "links",
+        ],
       },
     },
     responses: {
       AuthSuccess: {
-        description: "Authenticated. Also sets the rotating HttpOnly refresh cookie.",
+        description:
+          "Authenticated. Also sets the rotating HttpOnly refresh cookie.",
         headers: { "Set-Cookie": { schema: { type: "string" } } },
-        content: { "application/json": { schema: { $ref: "#/components/schemas/AuthResponse" } } },
+        content: {
+          "application/json": {
+            schema: { $ref: "#/components/schemas/AuthResponse" },
+          },
+        },
       },
       HealStatus: {
         description: "Healing lifecycle status",
@@ -641,23 +807,43 @@ export const openApiDocument = {
       },
       BadRequest: {
         description: "Invalid request",
-        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+        content: {
+          "application/json": {
+            schema: { $ref: "#/components/schemas/Error" },
+          },
+        },
       },
       Unauthorized: {
         description: "Authentication failed",
-        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+        content: {
+          "application/json": {
+            schema: { $ref: "#/components/schemas/Error" },
+          },
+        },
       },
       NotFound: {
         description: "Job not found or not owned by the authenticated user",
-        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+        content: {
+          "application/json": {
+            schema: { $ref: "#/components/schemas/Error" },
+          },
+        },
       },
       RateLimited: {
         description: "Authentication rate limit exceeded",
-        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+        content: {
+          "application/json": {
+            schema: { $ref: "#/components/schemas/Error" },
+          },
+        },
       },
       InternalError: {
         description: "Unexpected server error",
-        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+        content: {
+          "application/json": {
+            schema: { $ref: "#/components/schemas/Error" },
+          },
+        },
       },
     },
   },

@@ -53,7 +53,9 @@ import { processZeroAreaPolygons } from "../processing/zero-area-polygons";
 import { readGisFile } from "../services/gis-file.service";
 import {
   markAnalysisCompleted,
+  markAnalysisCancelled,
   markAnalysisFailed,
+  getAnalysis,
   markAnalysisProcessing,
   markAnalysisProgress,
 } from "../services/analysis-store.service";
@@ -64,6 +66,10 @@ import {
   parseHealingProgress,
 } from "../services/heal-progress.service";
 import { updateUploadHealingMetrics } from "../services/upload-record.service";
+import {
+  isHealingCancellationRequested,
+  throwIfHealingCancelled,
+} from "../services/heal-cancellation.service";
 const mapshaper = require("mapshaper");
 
 // ---------------------------------------------------------------------------
@@ -359,8 +365,7 @@ const detectDuplicatePolygons = (
           const signaturesMatch =
             signaturesA.length === signaturesB.length &&
             signaturesA.every(
-              (signature, ringIndex) =>
-                signature === signaturesB[ringIndex],
+              (signature, ringIndex) => signature === signaturesB[ringIndex],
             );
 
           if (signaturesMatch) {
@@ -774,6 +779,8 @@ const healPolygonOverlaps = (
 export const gisWorker = new Worker(
   "gis-processing-queue",
   async (job: Job<GisJobData>) => {
+    const jobId = String(job.id);
+    const cancellationCheckpoint = () => throwIfHealingCancelled(jobId);
     const {
       fileName,
       originalName,
@@ -800,12 +807,15 @@ export const gisWorker = new Worker(
         `| tolerance: ${usertolerance}mm | overlapRatio: ${effectiveOverlapRatio}`,
     );
 
+    await cancellationCheckpoint();
+
     if (!fs.existsSync(filePath))
       throw new Error(`File not found: ${filePath}`);
 
     const ext = path.extname(originalName).toLowerCase();
     await job.updateProgress(createHealingProgress(10, "parsing"));
     let geojson: any = await readGisFile(filePath, originalName);
+    await cancellationCheckpoint();
 
     // GEO-010 is the first semantic gate. Invalid feature geometries are
     // preserved for reporting but quarantined before specialized processors.
@@ -838,8 +848,7 @@ export const gisWorker = new Worker(
     // GEO-011 validates complete finite positions and consistent arity before
     // coordinate-sequence processors interpret geometry contents.
     const geometryDimensionResult = processGeometryDimensions(geojson);
-    const geometryDimensionValidationReport =
-      geometryDimensionResult.report;
+    const geometryDimensionValidationReport = geometryDimensionResult.report;
     if (geometryDimensionValidationReport.unresolvedIssues > 0) {
       console.log(
         `🟫 [SnapGIS] Geometry dimensions — invalid: ` +
@@ -850,8 +859,7 @@ export const gisWorker = new Worker(
     // GEO-012 validates MultiPolygon component structure and pair topology
     // with RBush candidate pruning before any multipart enters repair stages.
     const multipartIntegrityResult = processMultipartIntegrity(geojson);
-    const multipartIntegrityValidationReport =
-      multipartIntegrityResult.report;
+    const multipartIntegrityValidationReport = multipartIntegrityResult.report;
     if (multipartIntegrityValidationReport.unresolvedIssues > 0) {
       console.log(
         `🟦 [SnapGIS] Multipart integrity — invalid: ` +
@@ -957,9 +965,7 @@ export const gisWorker = new Worker(
     });
     geojson = invalidHoleResult.geojson;
     const invalidHoleValidationReport = invalidHoleResult.report;
-    for (
-      const featureIndex of invalidHoleValidationReport.unresolvedFeatureIndexes
-    ) {
+    for (const featureIndex of invalidHoleValidationReport.unresolvedFeatureIndexes) {
       quarantinedFeatureIndexes.add(featureIndex);
     }
 
@@ -998,11 +1004,8 @@ export const gisWorker = new Worker(
       polygonAreaBaseline,
       geojson,
     );
-    const collapsedPolygonValidationReport =
-      collapsedPolygonResult.report;
-    for (
-      const featureIndex of collapsedPolygonValidationReport.unresolvedFeatureIndexes
-    ) {
+    const collapsedPolygonValidationReport = collapsedPolygonResult.report;
+    for (const featureIndex of collapsedPolygonValidationReport.unresolvedFeatureIndexes) {
       quarantinedFeatureIndexes.add(featureIndex);
     }
 
@@ -1017,9 +1020,7 @@ export const gisWorker = new Worker(
     // safely without domain knowledge, so its owning feature is quarantined.
     const zeroAreaPolygonResult = processZeroAreaPolygons(geojson);
     const zeroAreaPolygonValidationReport = zeroAreaPolygonResult.report;
-    for (
-      const featureIndex of zeroAreaPolygonValidationReport.unresolvedFeatureIndexes
-    ) {
+    for (const featureIndex of zeroAreaPolygonValidationReport.unresolvedFeatureIndexes) {
       quarantinedFeatureIndexes.add(featureIndex);
     }
 
@@ -1045,9 +1046,7 @@ export const gisWorker = new Worker(
       tinyPolygonAreaM2: minSliverAreaM2,
     });
     const tinyPolygonValidationReport = tinyPolygonResult.report;
-    for (
-      const featureIndex of tinyPolygonValidationReport.unresolvedFeatureIndexes
-    ) {
+    for (const featureIndex of tinyPolygonValidationReport.unresolvedFeatureIndexes) {
       quarantinedFeatureIndexes.add(featureIndex);
     }
 
@@ -1069,6 +1068,7 @@ export const gisWorker = new Worker(
         spike: spikeValidationReport.spikesFound,
       }),
     );
+    await cancellationCheckpoint();
 
     const polyFeatures = geojson.features.filter(
       (f: any, featureIndex: number) =>
@@ -1122,6 +1122,7 @@ export const gisWorker = new Worker(
         spike: spikeValidationReport.spikesFound,
       }),
     );
+    await cancellationCheckpoint();
 
     await job.updateProgress(
       createHealingProgress(30, "healing", {
@@ -1129,13 +1130,13 @@ export const gisWorker = new Worker(
         spike: spikeValidationReport.spikesFound,
       }),
     );
+    await cancellationCheckpoint();
 
     const lineTopologyResult = processLineTopology(
       featureCollection(lineFeatures),
       { toleranceMeters: polyToleranceMeters },
     );
-    const undershootValidationReport =
-      lineTopologyResult.reports.undershoots;
+    const undershootValidationReport = lineTopologyResult.reports.undershoots;
     const overshootValidationReport = lineTopologyResult.reports.overshoots;
     const healedLineCount = new Set(
       [
@@ -1153,6 +1154,7 @@ export const gisWorker = new Worker(
         spike: spikeValidationReport.spikesFound,
       }),
     );
+    await cancellationCheckpoint();
 
     // Overlap healing must run before kink detection — overlapping polygons
     // can produce false kink reports.
@@ -1181,11 +1183,13 @@ export const gisWorker = new Worker(
         spike: spikeValidationReport.spikesFound,
       }),
     );
+    await cancellationCheckpoint();
 
     let kinkCount = 0;
     let healedPolysList: any[] = [];
 
-    for (const feature of polyFeaturesAfterOverlap) {
+    for (const [featureOffset, feature] of polyFeaturesAfterOverlap.entries()) {
+      if (featureOffset % 100 === 0) await cancellationCheckpoint();
       const featureKinks = kinks(feature);
       if (featureKinks.features.length > 0) {
         kinkCount += featureKinks.features.length;
@@ -1202,6 +1206,7 @@ export const gisWorker = new Worker(
         spike: spikeValidationReport.spikesFound,
       }),
     );
+    await cancellationCheckpoint();
 
     // rewind MUST run before the featureCollection snapshot — otherwise
     // Mapshaper receives un-rewound polygons and silently drops holes.
@@ -1227,6 +1232,7 @@ export const gisWorker = new Worker(
         processedPolys,
         polyToleranceMeters,
       );
+      await cancellationCheckpoint();
       const outputOrientationResult = processRingOrientation(
         mapshaperOutput.result,
       );
@@ -1248,6 +1254,7 @@ export const gisWorker = new Worker(
         spike: spikeValidationReport.spikesFound,
       }),
     );
+    await cancellationCheckpoint();
 
     geojson.features = [
       ...processedLines.features,
@@ -1263,7 +1270,13 @@ export const gisWorker = new Worker(
 
     const outputFileName = `cleaned-${fileName.replace(ext, ".geojson")}`;
     const outputFilePath = path.join(outputDir, outputFileName);
+    await cancellationCheckpoint();
     fs.writeFileSync(outputFilePath, JSON.stringify(optimizedGeojson));
+
+    if (await isHealingCancellationRequested(jobId)) {
+      fs.rmSync(outputFilePath, { force: true });
+      await cancellationCheckpoint();
+    }
 
     const newSize = fs.statSync(outputFilePath).size;
     await job.updateProgress(
@@ -1298,8 +1311,7 @@ export const gisWorker = new Worker(
       topologicalDuplicates,
       nearDuplicates,
       duplicateErrorLog,
-      duplicateVerticesFound:
-        duplicateVertexValidationReport.duplicatesFound,
+      duplicateVerticesFound: duplicateVertexValidationReport.duplicatesFound,
       duplicateVerticesRemoved:
         duplicateVertexValidationReport.duplicatesRemoved,
       duplicateVerticesUnresolved:
@@ -1307,13 +1319,11 @@ export const gisWorker = new Worker(
       duplicateVertexValidationReport,
       invalidRingsFound: invalidRingValidationReport.invalidRingsFound,
       invalidRingsRepaired: invalidRingValidationReport.ringsRepaired,
-      invalidRingIssuesUnresolved:
-        invalidRingValidationReport.unresolvedIssues,
+      invalidRingIssuesUnresolved: invalidRingValidationReport.unresolvedIssues,
       invalidRingValidationReport,
       openRingsFound: ringClosureValidationReport.openRingsFound,
       ringsAutoClosed: ringClosureValidationReport.ringsClosed,
-      openRingsUnresolved:
-        ringClosureValidationReport.unresolvedOpenRings,
+      openRingsUnresolved: ringClosureValidationReport.unresolvedOpenRings,
       ringClosureValidationReport,
       ringOrientationIssuesFound:
         ringOrientationValidationReport.orientationIssuesFound,
@@ -1333,8 +1343,7 @@ export const gisWorker = new Worker(
       outsideHolesRemoved: invalidHoleValidationReport.outsideHolesRemoved,
       holeOrientationsNormalized:
         invalidHoleValidationReport.holeOrientationsNormalized,
-      invalidHoleIssuesUnresolved:
-        invalidHoleValidationReport.unresolvedIssues,
+      invalidHoleIssuesUnresolved: invalidHoleValidationReport.unresolvedIssues,
       invalidHoleValidationReport,
       appliedTinyHoleAreaM2: minSliverAreaM2,
       spikesFound: spikeValidationReport.spikesFound,
@@ -1348,8 +1357,7 @@ export const gisWorker = new Worker(
         zeroAreaPolygonValidationReport.unresolvedIssues,
       zeroAreaPolygonValidationReport,
       tinyPolygonsFound: tinyPolygonValidationReport.tinyPolygonsFound,
-      tinyPolygonIssuesUnresolved:
-        tinyPolygonValidationReport.unresolvedIssues,
+      tinyPolygonIssuesUnresolved: tinyPolygonValidationReport.unresolvedIssues,
       tinyPolygonValidationReport,
       appliedTinyPolygonAreaM2: minSliverAreaM2,
       collapsedPolygonsFound:
@@ -1435,9 +1443,9 @@ gisWorker.on("progress", (job, progress) => {
     (typeof progress === "number"
       ? progress
       : typeof progress === "object" &&
-            progress !== null &&
-            "value" in progress &&
-            typeof progress.value === "number"
+          progress !== null &&
+          "value" in progress &&
+          typeof progress.value === "number"
         ? progress.value
         : 0);
   persistLifecycle(
@@ -1451,14 +1459,18 @@ gisWorker.on("completed", (job, result) => {
   console.log(`✅ [SnapGIS Worker] Job ${job.id} COMPLETED.`);
   const jobId = String(job.id);
   persistLifecycle(
-    Promise.all([
-      markAnalysisCompleted(jobId, result),
-      updateUploadHealingMetrics(
-        jobId,
-        "completed",
-        countAppliedRepairs(result),
-      ),
-    ]),
+    (async () => {
+      const analysis = await getAnalysis(jobId);
+      if (analysis?.healStatus === "cancelled") return;
+      await Promise.all([
+        markAnalysisCompleted(jobId, result),
+        updateUploadHealingMetrics(
+          jobId,
+          "completed",
+          countAppliedRepairs(result),
+        ),
+      ]);
+    })(),
     "completion result",
     jobId,
   );
@@ -1471,13 +1483,26 @@ gisWorker.on("failed", (job, err) => {
   if (job.attemptsMade < maximumAttempts) return;
   const jobId = String(job.id);
   persistLifecycle(
-    Promise.all([
-      markAnalysisFailed(
-        jobId,
-        "Healing failed after all retry attempts. Please try again.",
-      ),
-      updateUploadHealingMetrics(jobId, "failed"),
-    ]),
+    (async () => {
+      const analysis = await getAnalysis(jobId);
+      const wasCancelled =
+        analysis?.healStatus === "cancelled" ||
+        (await isHealingCancellationRequested(jobId));
+      if (wasCancelled) {
+        await Promise.all([
+          markAnalysisCancelled(jobId),
+          updateUploadHealingMetrics(jobId, "cancelled", 0),
+        ]);
+        return;
+      }
+      await Promise.all([
+        markAnalysisFailed(
+          jobId,
+          "Healing failed after all retry attempts. Please try again.",
+        ),
+        updateUploadHealingMetrics(jobId, "failed"),
+      ]);
+    })(),
     "failure state",
     jobId,
   );

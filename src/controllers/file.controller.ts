@@ -152,6 +152,7 @@ const buildFileDetail = (
           ? buildPublicHealResult(analysis)
           : null,
     },
+    reviewDecisions: analysis?.reviewDecisions ?? {},
   };
 };
 
