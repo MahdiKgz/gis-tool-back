@@ -23,9 +23,12 @@ topology in XY, and does not misclassify an exact polygon-ring closure.
 
 ## Policy and output integration
 
-Precision loss is not repaired automatically because rounding can collapse
-segments or rings. Affected features are preserved without rounding,
-reported for manual review, and quarantined from downstream topology.
+Excess decimal precision is automatically normalized at output when no
+positions collide on the rounding grid and the scaled coordinate magnitude is
+safe. Those findings are reported as `AutoRepairAvailable` and remain eligible
+for topology healing. Features with a rounding collision or unsafe magnitude
+are preserved without rounding, reported for manual review, and quarantined
+from downstream topology.
 
 Compliant output continues to use nine-decimal rounding. The output helper
 now retains every ordinate instead of Turf's default three-ordinate limit, so

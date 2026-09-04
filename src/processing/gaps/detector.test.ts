@@ -159,4 +159,12 @@ test("rejects invalid gap tolerances", () => {
       ),
     /finite non-negative/,
   );
+  assert.throws(
+    () =>
+      detectGaps(
+        { type: "FeatureCollection", features: [] },
+        { gapToleranceMeters: 1, minimumGapWidthMeters: -0.001 },
+      ),
+    /finite non-negative/,
+  );
 });

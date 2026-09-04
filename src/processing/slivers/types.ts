@@ -18,7 +18,7 @@ export interface SliverFinding {
   detectionReasons: Array<"Area" | "Compactness">;
   thresholdM2: number;
   minCompactness: number;
-  repairable: false;
+  repairable: boolean;
 }
 
 export interface SliverDetectionResult {
@@ -30,13 +30,15 @@ export interface SliverValidationReport {
   valid: boolean;
   polygonFeaturesScanned: number;
   sliversFound: number;
+  sliversRemoved: number;
+  unresolvedSlivers: number;
   unresolvedIssues: number;
   unresolvedFeatureIndexes: number[];
   appliedSliverAreaThresholdM2: number;
   issues: Array<
     SliverFinding & {
-      status: "Unresolved";
-      recommendedAction: "ManualReview";
+      status: "Removed" | "Unresolved";
+      recommendedAction: "None" | "AutoRepair" | "ManualReview";
     }
   >;
 }

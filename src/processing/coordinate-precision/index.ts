@@ -4,6 +4,7 @@ import {
 } from "./detector";
 import { buildCoordinatePrecisionReport } from "./report";
 import {
+  CoordinatePrecisionValidationReport,
   CoordinatePrecisionOptions,
   CoordinatePrecisionProcessResult,
   FeatureCollectionLike,
@@ -13,6 +14,20 @@ export * from "./detector";
 export * from "./output";
 export * from "./report";
 export * from "./types";
+
+export const coordinatePrecisionQuarantineFeatureIndexes = (
+  report: CoordinatePrecisionValidationReport,
+): number[] => [
+  ...new Set(
+    report.issues
+      .filter(
+        (issue) =>
+          issue.code === "ROUNDING_COLLISION" ||
+          issue.code === "UNSAFE_COORDINATE_MAGNITUDE",
+      )
+      .map((issue) => issue.featureIndex),
+  ),
+].sort((first, second) => first - second);
 
 export const processCoordinatePrecision = <T extends FeatureCollectionLike>(
   geojson: T,

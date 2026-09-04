@@ -63,6 +63,7 @@ interface PairCandidate {
 
 interface NormalizedGapOptions {
   gapToleranceMeters: number;
+  minimumGapWidthMeters: number;
   maxInferredGapWidthMeters: number;
   maxGapWidthToSharedBoundaryRatio: number;
   minSharedBoundaryRatio: number;
@@ -197,6 +198,7 @@ const parallelBoundaryEvidence = (
 const normalizeOptions = (options: GapOptions): NormalizedGapOptions => {
   const normalized = {
     gapToleranceMeters: options.gapToleranceMeters,
+    minimumGapWidthMeters: options.minimumGapWidthMeters ?? 0,
     maxInferredGapWidthMeters:
       options.maxInferredGapWidthMeters ?? DEFAULT_MAX_INFERRED_GAP_WIDTH_M,
     maxGapWidthToSharedBoundaryRatio:
@@ -210,6 +212,8 @@ const normalizeOptions = (options: GapOptions): NormalizedGapOptions => {
   if (
     !Number.isFinite(normalized.gapToleranceMeters) ||
     normalized.gapToleranceMeters < 0 ||
+    !Number.isFinite(normalized.minimumGapWidthMeters) ||
+    normalized.minimumGapWidthMeters < 0 ||
     !Number.isFinite(normalized.maxInferredGapWidthMeters) ||
     normalized.maxInferredGapWidthMeters < 0
   ) {
@@ -301,6 +305,27 @@ const findingFromCandidate = (
 ): GapFinding => {
   const first = boundaries[candidate.first.componentIndex]!;
   const second = boundaries[candidate.second.componentIndex]!;
+  const directEndpointDistance = Math.max(
+    distanceMetersBetweenPositions(
+      candidate.first.start,
+      candidate.second.start,
+    ),
+    distanceMetersBetweenPositions(candidate.first.end, candidate.second.end),
+  );
+  const reversedEndpointDistance = Math.max(
+    distanceMetersBetweenPositions(
+      candidate.first.start,
+      candidate.second.end,
+    ),
+    distanceMetersBetweenPositions(candidate.first.end, candidate.second.start),
+  );
+  const hasCompleteExteriorEdgeMatch =
+    candidate.first.ringIndex === 0 &&
+    candidate.second.ringIndex === 0 &&
+    candidate.sharedBoundaryRatio !== null &&
+    candidate.sharedBoundaryRatio >= 0.98 &&
+    Math.min(directEndpointDistance, reversedEndpointDistance) <=
+      toleranceMeters;
   return {
     code: "POLYGON_GAP",
     featureIndex: first.featureIndex,
@@ -332,7 +357,9 @@ const findingFromCandidate = (
     sharedBoundaryRatio: candidate.sharedBoundaryRatio,
     gapWidthToSharedBoundaryRatio:
       candidate.gapWidthToSharedBoundaryRatio,
-    repairable: candidate.distanceMeters <= toleranceMeters,
+    repairable:
+      candidate.distanceMeters <= toleranceMeters &&
+      hasCompleteExteriorEdgeMatch,
   };
 };
 
@@ -407,9 +434,24 @@ export const detectGaps = (
       if (!withinTolerance && !sharedBoundary) continue;
       const candidateDistance = sharedBoundary?.distanceMeters ??
         proximity.distanceMeters;
-      const previous = closestByPair.get(key);
-      if (previous && previous.distanceMeters <= candidateDistance) {
+      if (
+        candidateDistance <=
+        normalized.minimumGapWidthMeters + CONTACT_EPSILON_METERS
+      ) {
         continue;
+      }
+      const previous = closestByPair.get(key);
+      if (previous) {
+        const previousHasBoundaryEvidence =
+          previous.sharedBoundaryLengthMeters !== null;
+        const candidateHasBoundaryEvidence = sharedBoundary !== null;
+        if (
+          (previousHasBoundaryEvidence && !candidateHasBoundaryEvidence) ||
+          (previousHasBoundaryEvidence === candidateHasBoundaryEvidence &&
+            previous.distanceMeters <= candidateDistance)
+        ) {
+          continue;
+        }
       }
       closestByPair.set(key, {
         first,

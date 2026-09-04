@@ -11,6 +11,7 @@ configured tolerance.
 The upload `tolerance` is supplied in millimetres. SnapGIS derives:
 
 - line topology tolerance: `tolerance / 1000` metres;
+- accepted gap width: `tolerance / 1000` metres, inclusive;
 - gap repair tolerance: three times the line topology tolerance;
 - small-area threshold: `(line topology tolerance * 10)²` square metres;
 - sliver compactness threshold: `0.1`, using `4π × area / perimeter²`;
@@ -36,7 +37,8 @@ review.
 ## Polygon gaps and shared boundaries
 
 The `gaps` check reports `POLYGON_GAP` when two distinct polygon features do
-not touch, overlap, or contain one another and either:
+not touch, overlap, or contain one another, their separation is greater than
+the accepted gap width, and either:
 
 1. their true nearest boundary distance is inside the applied repair
    tolerance; or
@@ -50,8 +52,16 @@ MultiPolygon feature are not treated as dataset gaps.
 
 Findings contain both feature IDs/indexes, both polygon and coordinate paths,
 nearest positions, distance, detection mode, and shared-boundary metrics. A
-gap is `AutoRepairAvailable` only inside the applied gap tolerance. Inferred
-shared-boundary gaps are `ManualReview`.
+gap is `AutoRepairAvailable` only when its full exterior edges overlap by at
+least 98%, both endpoint pairs are inside the applied gap tolerance, and the
+repair passes positive-area, self-intersection, and overlap guards. Healing
+moves both matching edges to their shared midpoint so neither parcel is
+treated as authoritative. Partial edges, corner proximity, holes, and inferred
+gaps beyond tolerance remain `ManualReview`.
+
+This separation is intentional: at a 50 mm setting, widths up to and including
+50 mm are accepted, while a 55 mm complete-edge gap is reported and can still
+be repaired inside the 150 mm repair radius.
 
 ## Sliver polygons
 
@@ -61,8 +71,12 @@ The compactness gate detects long, narrow cadastral remnants whose total area
 is not small. Each finding states whether area, compactness, or both triggered
 it. Zero-area polygons remain the responsibility of GEO-007.
 
-Input slivers require manual review. Area or compactness alone is not enough
-evidence to delete a business feature.
+Components below the configured minimum mapping area are
+`AutoRepairAvailable`; healing removes the standalone polygon or only the
+affected `MultiPolygon` component. Compactness-only findings stay
+`ManualReview`, because a long narrow polygon can be a legitimate parcel and
+cannot be reconstructed safely from shape alone. Nested polygons inside a
+`GeometryCollection` also remain manual.
 
 ## Line undershoots
 
@@ -96,6 +110,9 @@ contains both complete source features once.
 ## Safety and performance
 
 - Dry-run never mutates source coordinates.
+- Ordinary excess decimal precision is `AutoRepairAvailable` and does not
+  quarantine an otherwise safe feature from healing. Rounding collisions and
+  unsafe numeric magnitudes remain manual and quarantined.
 - Invalid geometry types, dimensions, rings, and unsafe polygon topology are
   quarantined before relational checks.
 - Spatial candidate discovery is O(n log n) with RBush plus work proportional
@@ -105,4 +122,6 @@ contains both complete source features once.
 
 Integration fixtures are
 `src/test-data/geojson/dry-run-gap-sliver-line-topology.geojson` and
-`src/test-data/geojson/cadastral-topology-errors-sample.geojson`.
+`src/test-data/geojson/cadastral-topology-errors-sample.geojson`. The focused
+50 mm healing regression is
+`src/test-data/geojson/gap-healing-50mm.geojson`.

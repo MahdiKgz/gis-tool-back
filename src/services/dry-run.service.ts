@@ -104,6 +104,7 @@ export interface DryRunReport {
     sliverAreaThresholdM2: number;
     sliverMinCompactness: number;
     gapToleranceMeters: number;
+    minimumGapWidthMeters: number;
     maxInferredGapWidthMeters: number;
     lineTopologyToleranceMeters: number;
     maxInferredLineErrorMeters: number;
@@ -282,6 +283,7 @@ export const analyzeGeoJson = (
       sliverAreaThresholdM2: tinyAreaThresholdM2,
       sliverMinCompactness: DEFAULT_MIN_SLIVER_COMPACTNESS,
       gapToleranceMeters,
+      minimumGapWidthMeters: toleranceMeters,
       maxInferredGapWidthMeters: DEFAULT_MAX_INFERRED_GAP_WIDTH_M,
       lineTopologyToleranceMeters: toleranceMeters,
       maxInferredLineErrorMeters: DEFAULT_MAX_INFERRED_LINE_ERROR_M,
@@ -378,7 +380,7 @@ export const analyzeGeoJson = (
   checks.overlaps = processPolygonOverlaps(polygonRelationshipInput).report;
   checks.gaps = processGaps(
     polygonRelationshipInput,
-    { gapToleranceMeters },
+    { gapToleranceMeters, minimumGapWidthMeters: toleranceMeters },
   ).report;
 
   return buildReport(geojson, checks, {
@@ -387,6 +389,7 @@ export const analyzeGeoJson = (
     sliverAreaThresholdM2: tinyAreaThresholdM2,
     sliverMinCompactness: DEFAULT_MIN_SLIVER_COMPACTNESS,
     gapToleranceMeters,
+    minimumGapWidthMeters: toleranceMeters,
     maxInferredGapWidthMeters: DEFAULT_MAX_INFERRED_GAP_WIDTH_M,
     lineTopologyToleranceMeters: toleranceMeters,
     maxInferredLineErrorMeters: DEFAULT_MAX_INFERRED_LINE_ERROR_M,

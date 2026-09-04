@@ -108,10 +108,12 @@ Dry-run includes these topology checks:
 - `overshoots` / `LINE_OVERSHOOT`
 
 The applied metric and shape thresholds are exposed under
-`report.appliedOptions`. Detection can report a high-confidence shape or
-shared-boundary anomaly beyond the repair tolerance. Such findings are
-`ManualReview`; `AutoRepairAvailable` remains restricted to safe endpoint or
-gap movements inside the supplied millimetre tolerance.
+`report.appliedOptions`. `minimumGapWidthMeters` is the inclusive accepted gap
+width; `gapToleranceMeters` is the larger maximum auto-repair radius.
+Detection can report a high-confidence shape or shared-boundary anomaly beyond
+the repair radius. Such findings are `ManualReview`;
+`AutoRepairAvailable` remains restricted to safe endpoint or gap movements
+inside that radius.
 
 Use `report.issueGroups` for the frontend error list. It contains one item per
 `check` and `code` combination, regardless of whether the same problem affects

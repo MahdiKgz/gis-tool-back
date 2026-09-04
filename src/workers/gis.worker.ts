@@ -22,6 +22,7 @@ import {
   processCollapsedPolygons,
 } from "../processing/collapsed-polygons";
 import {
+  coordinatePrecisionQuarantineFeatureIndexes,
   prepareOutputCoordinates,
   processCoordinatePrecision,
 } from "../processing/coordinate-precision";
@@ -30,7 +31,6 @@ import { processGeometryDimensions } from "../processing/geometry-dimensions";
 import { processGeometryTypes } from "../processing/geometry-types";
 import {
   computeGapToleranceMeters,
-  GAP_TOLERANCE_MULTIPLIER,
   processGaps,
 } from "../processing/gaps";
 import { processInvalidHoles } from "../processing/invalid-holes";
@@ -458,7 +458,7 @@ const detectDuplicatePolygons = (
 };
 
 // ---------------------------------------------------------------------------
-// Mapshaper two-pass pipeline
+// Explicit polygon repair followed by Mapshaper topology cleanup
 // ---------------------------------------------------------------------------
 const runMapshaperPipeline = async (
   geojson: any,
@@ -470,46 +470,51 @@ const runMapshaperPipeline = async (
   gapsClosed: number;
 }> =>
   new Promise((resolve, reject) => {
-    const intervalDeg = toleranceMeters / 111320;
     const minAreaM2 = computeSliverAreaThresholdM2(toleranceMeters);
     const gapToleranceMeters = computeGapToleranceMeters(toleranceMeters);
 
-    const sliversBefore = processSlivers(geojson, {
-      sliverAreaThresholdM2: minAreaM2,
-      minCompactness: 0,
-    }).report.sliversFound;
-    const gapsFound = processGaps(geojson, {
-      gapToleranceMeters,
-    }).report.gapsFound;
+    const sliverResult = processSlivers(
+      geojson,
+      {
+        sliverAreaThresholdM2: minAreaM2,
+        minCompactness: 0,
+      },
+      true,
+    );
+    const gapResult = processGaps(
+      sliverResult.geojson,
+      { gapToleranceMeters, minimumGapWidthMeters: toleranceMeters },
+      true,
+    );
+
+    if (gapResult.geojson.features.length === 0) {
+      resolve({
+        result: gapResult.geojson,
+        sliversRemovedCount: sliverResult.report.sliversRemoved,
+        gapsFound: gapResult.report.gapsFound,
+        gapsClosed: gapResult.report.gapsRepaired,
+      });
+      return;
+    }
 
     const commands = [
       `-i input.json`,
-      `-snap interval=${intervalDeg}`,
-      `-clean`,
-      `-filter '$.area > ${minAreaM2}' remove-empty`,
-      `-snap interval=${intervalDeg * GAP_TOLERANCE_MULTIPLIER}`,
       `-clean`,
       `-o output.json format=geojson`,
     ].join(" ");
 
     mapshaper.applyCommands(
       commands,
-      { "input.json": JSON.stringify(geojson) },
+      { "input.json": JSON.stringify(gapResult.geojson) },
       (err: any, output: any) => {
         if (err) return reject(err);
         if (!output?.["output.json"])
           return reject(new Error("Mapshaper output missing"));
 
         const result = JSON.parse(output["output.json"].toString("utf-8"));
-        const sliversAfter = processSlivers(result, {
-          sliverAreaThresholdM2: minAreaM2,
-          minCompactness: 0,
-        }).report.sliversFound;
-        const sliversRemovedCount = Math.max(0, sliversBefore - sliversAfter);
-        const gapsAfter = processGaps(result, {
-          gapToleranceMeters,
-        }).report.gapsFound;
-        const gapsClosed = Math.max(0, gapsFound - gapsAfter);
+        const sliversRemovedCount = sliverResult.report.sliversRemoved;
+        const gapsFound = gapResult.report.gapsFound;
+        const gapsClosed = gapResult.report.gapsRepaired;
 
         resolve({ result, sliversRemovedCount, gapsFound, gapsClosed });
       },
@@ -896,11 +901,15 @@ export const gisWorker = new Worker(
       ringClosureDetection,
       invalidRingResult.repairedRingKeys,
     );
+    const coordinatePrecisionUnsafeFeatureIndexes =
+      coordinatePrecisionQuarantineFeatureIndexes(
+        coordinatePrecisionValidationReport,
+      );
     const quarantinedFeatureIndexes = new Set([
       ...geometryTypeValidationReport.unresolvedFeatureIndexes,
       ...geometryDimensionValidationReport.unresolvedFeatureIndexes,
       ...multipartIntegrityValidationReport.unresolvedFeatureIndexes,
-      ...coordinatePrecisionValidationReport.unresolvedFeatureIndexes,
+      ...coordinatePrecisionUnsafeFeatureIndexes,
       ...invalidRingValidationReport.unresolvedFeatureIndexes,
     ]);
 
@@ -1032,13 +1041,17 @@ export const gisWorker = new Worker(
     }
 
     // Slivers use both the tolerance-derived area threshold and the
-    // scale-independent compactness gate. They are reported before GEO-008
-    // quarantines tiny polygons; destructive removal is intentionally left
-    // to manual review for input features.
+    // scale-independent compactness gate. Minimum-area components are safe
+    // auto-repair candidates; compactness-only narrow parcels remain manual.
     const inputSliverValidationReport = processSlivers(geojson, {
       sliverAreaThresholdM2: minSliverAreaM2,
     }).report;
     const inputSliverCount = inputSliverValidationReport.sliversFound;
+    const repairableSliverFeatureIndexes = new Set(
+      inputSliverValidationReport.issues
+        .filter((issue) => issue.repairable)
+        .map((issue) => issue.featureIndex),
+    );
 
     // GEO-008 distinguishes small positive-area components from GEO-007's
     // exact-zero degeneracy and reports them without destructive removal.
@@ -1047,7 +1060,9 @@ export const gisWorker = new Worker(
     });
     const tinyPolygonValidationReport = tinyPolygonResult.report;
     for (const featureIndex of tinyPolygonValidationReport.unresolvedFeatureIndexes) {
-      quarantinedFeatureIndexes.add(featureIndex);
+      if (!repairableSliverFeatureIndexes.has(featureIndex)) {
+        quarantinedFeatureIndexes.add(featureIndex);
+      }
     }
 
     if (tinyPolygonValidationReport.tinyPolygonsFound > 0) {

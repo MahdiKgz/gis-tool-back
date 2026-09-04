@@ -22,6 +22,7 @@ test("detects values changed by configured decimal rounding", () => {
   );
   assert.equal(result.findings[0]?.decimalPlaces, 10);
   assert.equal(result.findings[0]?.roundedValue, 1.123456789);
+  assert.equal(result.findings[0]?.repairable, true);
 });
 
 test("handles scientific notation precision deterministically", () => {
@@ -47,6 +48,7 @@ test("detects distinct XY positions that collide on the rounding grid", () => {
   );
   assert.deepEqual(collision?.coordinatePath, [1]);
   assert.deepEqual(collision?.relatedCoordinatePath, [0]);
+  assert.ok(result.findings.every((finding) => !finding.repairable));
 });
 
 test("does not report an exact ring closure as a rounding collision", () => {
@@ -71,6 +73,7 @@ test("detects magnitudes that cannot safely address the precision grid", () => {
     { maxDecimalPlaces: 9 },
   );
   assert.equal(result.findings[0]?.code, "UNSAFE_COORDINATE_MAGNITUDE");
+  assert.equal(result.findings[0]?.repairable, false);
 });
 
 test("rejects invalid precision configuration", () => {

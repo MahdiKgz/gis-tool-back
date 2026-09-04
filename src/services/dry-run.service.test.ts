@@ -244,7 +244,7 @@ test("reports gaps, slivers, undershoots, and overshoots in one dry run", async 
   );
   assert.equal(
     requestedIssues.get("SLIVER_POLYGON")?.disposition,
-    "ManualReview",
+    "AutoRepairAvailable",
   );
   assert.ok(
     ["POLYGON_GAP", "LINE_UNDERSHOOT", "LINE_OVERSHOOT"].every(
@@ -276,6 +276,34 @@ test("reports gaps, slivers, undershoots, and overshoots in one dry run", async 
   assert.equal(report.appliedOptions.sliverAreaThresholdM2, 0.09);
   assert.equal(report.appliedOptions.gapToleranceMeters, 0.09);
   assert.equal(report.appliedOptions.lineTopologyToleranceMeters, 0.03);
+  assert.deepEqual(fs.readFileSync(fixturePath), before);
+});
+
+test("applies a 50 mm issue threshold to the cadastral preview fixture", async () => {
+  const fixturePath = path.resolve(
+    "src/test-data/geojson/gap-healing-50mm.geojson",
+  );
+  const before = fs.readFileSync(fixturePath);
+  const report = await analyzeGisFile(
+    fixturePath,
+    "cadastral-parcels-gap-threshold-test-wgs84-preview.geojson",
+    { toleranceMillimeters: 50 },
+  );
+
+  const gaps = report.issues.filter((issue) => issue.code === "POLYGON_GAP");
+  assert.equal(gaps.length, 1);
+  assert.equal(gaps[0]?.featureIndex, 1);
+  assert.equal(gaps[0]?.relatedFeatureIndex, 2);
+  assert.equal(gaps[0]?.disposition, "AutoRepairAvailable");
+  assert.equal(report.appliedOptions.minimumGapWidthMeters, 0.05);
+  assert.ok(report.appliedOptions.gapToleranceMeters > 0.149);
+  assert.ok(report.appliedOptions.gapToleranceMeters < 0.151);
+  assert.equal(report.summary.manualReviewIssues, 0);
+  assert.ok(
+    report.issues
+      .filter((issue) => issue.code === "EXCESSIVE_COORDINATE_PRECISION")
+      .every((issue) => issue.disposition === "AutoRepairAvailable"),
+  );
   assert.deepEqual(fs.readFileSync(fixturePath), before);
 });
 
