@@ -65,7 +65,7 @@ test("uses shoulder tolerance for repair eligibility, not detection", () => {
   assert.equal(repairable.findings[0]?.repairable, true);
 });
 
-test("reports a scale-independent cadastral spike for manual review", () => {
+test("marks a strongly evidenced cadastral ring spike repairable beyond tolerance", () => {
   const result = detectSpikes(
     collection({
       type: "Polygon",
@@ -84,7 +84,54 @@ test("reports a scale-independent cadastral spike for manual review", () => {
 
   assert.equal(result.findings.length, 1);
   assert.ok(result.findings[0]!.baseWidthMeters > 9);
+  assert.ok(result.findings[0]!.legToBaseRatio > 30);
   assert.ok(result.findings[0]!.tipAngleDegrees < 2);
+  assert.equal(result.findings[0]?.outwardRingSpike, true);
+  assert.equal(result.findings[0]?.repairEvidence, "StrongRingBacktrack");
+  assert.equal(result.findings[0]?.repairable, true);
+});
+
+test("keeps a wide line backtrack manual despite strong shape evidence", () => {
+  const result = detectSpikes(
+    collection({
+      type: "LineString",
+      coordinates: [
+        [51.3875, 35.68],
+        [51.39, 35.6845],
+        [51.3876, 35.68],
+      ],
+    }),
+    { baseToleranceMeters: 0.025 },
+  );
+
+  assert.equal(result.findings.length, 1);
+  assert.ok(result.findings[0]!.legToBaseRatio > 10);
+  assert.equal(result.findings[0]?.repairEvidence, "None");
+  assert.equal(result.findings[0]?.repairable, false);
+});
+
+test("keeps a strong inward ring notch manual beyond tolerance", () => {
+  const result = detectSpikes(
+    collection({
+      type: "Polygon",
+      coordinates: [[
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0.5001, 1],
+        [0.5, 0.5],
+        [0.4999, 1],
+        [0, 1],
+        [0, 0],
+      ]],
+    }),
+    { baseToleranceMeters: 1 },
+  );
+
+  assert.equal(result.findings.length, 1);
+  assert.ok(result.findings[0]!.legToBaseRatio > 10);
+  assert.equal(result.findings[0]?.outwardRingSpike, false);
+  assert.equal(result.findings[0]?.repairEvidence, "None");
   assert.equal(result.findings[0]?.repairable, false);
 });
 

@@ -96,7 +96,7 @@ test("detects directional under- and overshoots against polygon boundaries", () 
   assert.equal(undershoot.relatedTargetKind, "PolygonBoundary");
   assert.equal(undershoot.detectionMode, "DirectionalBoundaryPattern");
   assert.ok(undershoot.distanceMeters > 27 && undershoot.distanceMeters < 28);
-  assert.equal(undershoot.repairable, false);
+  assert.equal(undershoot.repairable, true);
   const overshoot = result.overshoots[0]!;
   assert.equal(overshoot.featureId, "R-202");
   assert.equal(overshoot.relatedFeatureId, "P-103");
@@ -105,7 +105,126 @@ test("detects directional under- and overshoots against polygon boundaries", () 
     overshoot.overrunDistanceMeters > 45 &&
       overshoot.overrunDistanceMeters < 46,
   );
+  assert.equal(overshoot.repairable, true);
+});
+
+test("keeps inferred polygon-boundary repairs manual when target locations compete", () => {
+  const boundary = {
+    type: "Feature",
+    id: "narrow-boundary",
+    properties: {},
+    geometry: {
+      type: "Polygon",
+      coordinates: [[
+        [0.001, -0.001],
+        [0.0010001, -0.001],
+        [0.0010001, 0.001],
+        [0.001, 0.001],
+        [0.001, -0.001],
+      ]],
+    },
+  };
+  const result = detectLineTopology(
+    {
+      type: "FeatureCollection",
+      features: [
+        boundary,
+        line("ambiguous-undershoot", [[-0.01, 0], [0.0008, 0]]),
+        line("ambiguous-overshoot", [
+          [-0.01, 0.0005],
+          [0.0012, 0.0005],
+        ]),
+      ],
+    },
+    { toleranceMeters: 0.025 },
+  );
+
+  const undershoot = result.undershoots.find(
+    (finding) => finding.featureId === "ambiguous-undershoot",
+  );
+  const overshoot = result.overshoots.find(
+    (finding) => finding.featureId === "ambiguous-overshoot",
+  );
+  assert.ok(undershoot);
+  assert.equal(undershoot.detectionMode, "DirectionalBoundaryPattern");
+  assert.equal(undershoot.repairable, false);
+  assert.ok(overshoot);
+  assert.equal(overshoot.detectionMode, "DirectionalBoundaryPattern");
   assert.equal(overshoot.repairable, false);
+});
+
+test("treats coincident polygon boundary targets as one inferred location", () => {
+  const polygon = (id: string, minimumX: number, maximumX: number) => ({
+    type: "Feature",
+    id,
+    properties: {},
+    geometry: {
+      type: "Polygon",
+      coordinates: [[
+        [minimumX, -0.001],
+        [maximumX, -0.001],
+        [maximumX, 0.001],
+        [minimumX, 0.001],
+        [minimumX, -0.001],
+      ]],
+    },
+  });
+  const result = detectLineTopology(
+    {
+      type: "FeatureCollection",
+      features: [
+        polygon("left", -0.002, 0.001),
+        polygon("right", 0.001, 0.003),
+        line("shared-boundary-undershoot", [[-0.01, 0], [0.0008, 0]]),
+      ],
+    },
+    { toleranceMeters: 0.025 },
+  );
+
+  const finding = result.undershoots.find(
+    (candidate) => candidate.featureId === "shared-boundary-undershoot",
+  );
+  assert.ok(finding);
+  assert.deepEqual(finding.targetPosition, [0.001, 0]);
+  assert.equal(finding.detectionMode, "DirectionalBoundaryPattern");
+  assert.equal(finding.repairable, true);
+});
+
+test("keeps an inferred boundary extension manual across an intervening line", () => {
+  const boundary = {
+    type: "Feature",
+    id: "boundary",
+    properties: {},
+    geometry: {
+      type: "Polygon",
+      coordinates: [[
+        [0.001, -0.001],
+        [0.003, -0.001],
+        [0.003, 0.001],
+        [0.001, 0.001],
+        [0.001, -0.001],
+      ]],
+    },
+  };
+  const result = detectLineTopology(
+    {
+      type: "FeatureCollection",
+      features: [
+        boundary,
+        line("source", [[-0.01, 0], [0.0008, 0]]),
+        line("intervening", [[0.0009, -0.001], [0.0009, 0.001]]),
+      ],
+    },
+    { toleranceMeters: 0.025 },
+  );
+
+  const finding = result.undershoots.find(
+    (candidate) => candidate.featureId === "source",
+  );
+  assert.ok(finding);
+  assert.equal(finding.relatedFeatureId, "boundary");
+  assert.equal(finding.detectionMode, "DirectionalBoundaryPattern");
+  assert.equal(finding.repairable, false);
 });
 
 test("does not classify a crossing at the opposite endpoint as repairable overshoot", () => {

@@ -2,6 +2,10 @@ import area from "@turf/area";
 import { featureCollection, polygon } from "@turf/helpers";
 import intersect from "@turf/intersect";
 import kinks from "@turf/kinks";
+import RBush from "rbush";
+import { detectInvalidHoles } from "../invalid-holes";
+import { detectMultipartIntegrity } from "../multipart-integrity";
+import { calculateRingOrientation } from "../ring-orientation";
 import { isFinitePosition, Position } from "../shared/coordinates";
 import {
   CoordinatePathUpdate,
@@ -9,10 +13,16 @@ import {
 } from "../shared/geometry-path";
 import { visitPolygonComponents } from "../shared/polygon-components";
 import { distanceMetersBetweenPositions } from "../shared/spatial-segments";
+import { SpatialBounds } from "../shared/spatial-segments";
+import {
+  DEFAULT_MAX_GAP_WIDTH_TO_SHARED_BOUNDARY_RATIO,
+  DEFAULT_MAX_INFERRED_GAP_WIDTH_M,
+} from "./detector";
 import {
   FeatureCollectionLike,
   GapFinding,
   GapOptions,
+  GapRepairFailureReason,
 } from "./types";
 
 const FLOAT_EDGE_EPSILON_M2 = 1e-8;
@@ -20,6 +30,7 @@ const FLOAT_EDGE_EPSILON_M2 = 1e-8;
 export interface GapRepairResult<T = FeatureCollectionLike> {
   geojson: T;
   repairedKeys: Set<string>;
+  failedReasons: Map<string, GapRepairFailureReason>;
 }
 
 export const gapFindingKey = (finding: GapFinding): string =>
@@ -64,6 +75,31 @@ interface MatchedEndpoints {
   secondEnd: Position;
   secondTargetsReversed: boolean;
 }
+
+interface IndexedPolygonFeature extends SpatialBounds {
+  featureIndex: number;
+}
+
+const inferredRepairDistanceLimit = (
+  finding: GapFinding,
+  options: GapOptions,
+): number => {
+  if (finding.distanceMeters <= options.gapToleranceMeters) {
+    return options.gapToleranceMeters;
+  }
+  if (
+    finding.sharedBoundaryLengthMeters === null ||
+    finding.gapWidthToSharedBoundaryRatio === null
+  ) {
+    return options.gapToleranceMeters;
+  }
+  return Math.min(
+    options.maxInferredGapWidthMeters ?? DEFAULT_MAX_INFERRED_GAP_WIDTH_M,
+    finding.sharedBoundaryLengthMeters *
+      (options.maxGapWidthToSharedBoundaryRatio ??
+        DEFAULT_MAX_GAP_WIDTH_TO_SHARED_BOUNDARY_RATIO),
+  );
+};
 
 const matchedEndpoints = (
   geojson: FeatureCollectionLike,
@@ -160,7 +196,33 @@ const updateSegment = (
   return { ...geojson, features };
 };
 
-const validPolygonFeature = (feature: unknown): boolean => {
+const ringOrientations = (feature: unknown): string[] | null => {
+  const candidate = feature as {
+    geometry?: Parameters<typeof visitPolygonComponents>[0];
+  };
+  const orientations: string[] = [];
+  let valid = true;
+  visitPolygonComponents(candidate.geometry, (component) => {
+    for (const ring of component.coordinates) {
+      try {
+        const orientation = calculateRingOrientation(ring);
+        if (orientation === "indeterminate") {
+          valid = false;
+          return;
+        }
+        orientations.push(orientation);
+      } catch {
+        valid = false;
+      }
+    }
+  });
+  return valid && orientations.length > 0 ? orientations : null;
+};
+
+const validPolygonFeature = (
+  originalFeature: unknown,
+  feature: unknown,
+): boolean => {
   const candidate = feature as {
     geometry?: Parameters<typeof visitPolygonComponents>[0];
   };
@@ -180,7 +242,29 @@ const validPolygonFeature = (feature: unknown): boolean => {
       valid = false;
     }
   });
-  return componentsFound > 0 && valid;
+  if (!valid || componentsFound === 0) return false;
+
+  const originalOrientations = ringOrientations(originalFeature);
+  const candidateOrientations = ringOrientations(feature);
+  if (
+    originalOrientations === null ||
+    candidateOrientations === null ||
+    originalOrientations.length !== candidateOrientations.length ||
+    originalOrientations.some(
+      (orientation, index) => orientation !== candidateOrientations[index],
+    )
+  ) {
+    return false;
+  }
+
+  const collection: FeatureCollectionLike = {
+    type: "FeatureCollection",
+    features: [feature as any],
+  };
+  return (
+    detectInvalidHoles(collection, { tinyHoleAreaM2: 0 }).findings.length ===
+      0 && detectMultipartIntegrity(collection).findings.length === 0
+  );
 };
 
 const pairHasNoAreaOverlap = (
@@ -199,25 +283,115 @@ const pairHasNoAreaOverlap = (
   }
 };
 
+const polygonFeatureBounds = (
+  geojson: FeatureCollectionLike,
+  featureIndex: number,
+): IndexedPolygonFeature | null => {
+  const feature = geojson.features?.[featureIndex];
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let componentsFound = 0;
+  visitPolygonComponents(feature?.geometry, (component) => {
+    componentsFound++;
+    for (const ring of component.coordinates) {
+      for (const position of ring) {
+        minX = Math.min(minX, position[0]!);
+        minY = Math.min(minY, position[1]!);
+        maxX = Math.max(maxX, position[0]!);
+        maxY = Math.max(maxY, position[1]!);
+      }
+    }
+  });
+  return componentsFound > 0
+    ? { minX, minY, maxX, maxY, featureIndex }
+    : null;
+};
+
+const polygonOverlapAreaM2 = (
+  geojson: FeatureCollectionLike,
+  firstIndex: number,
+  secondIndex: number,
+): number => {
+  const first = geojson.features?.[firstIndex];
+  const second = geojson.features?.[secondIndex];
+  if (!first || !second) return Number.POSITIVE_INFINITY;
+  try {
+    const overlap = intersect(featureCollection([first as any, second as any]));
+    return overlap ? area(overlap) : 0;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+};
+
+const candidateIntroducesOverlap = (
+  before: FeatureCollectionLike,
+  candidate: FeatureCollectionLike,
+  affectedFeatureIndexes: number[],
+  spatialIndex: RBush<IndexedPolygonFeature>,
+): boolean => {
+  const checkedPairs = new Set<string>();
+  for (const featureIndex of affectedFeatureIndexes) {
+    const bounds = polygonFeatureBounds(candidate, featureIndex);
+    if (!bounds) return true;
+    for (const neighbor of spatialIndex.search(bounds)) {
+      if (neighbor.featureIndex === featureIndex) continue;
+      const first = Math.min(featureIndex, neighbor.featureIndex);
+      const second = Math.max(featureIndex, neighbor.featureIndex);
+      const key = `${first}:${second}`;
+      if (checkedPairs.has(key)) continue;
+      checkedPairs.add(key);
+      const beforeArea = polygonOverlapAreaM2(before, first, second);
+      const afterArea = polygonOverlapAreaM2(candidate, first, second);
+      if (
+        !Number.isFinite(beforeArea) ||
+        !Number.isFinite(afterArea) ||
+        afterArea > Math.max(FLOAT_EDGE_EPSILON_M2, beforeArea + FLOAT_EDGE_EPSILON_M2)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+};
+
 export const repairGaps = <T extends FeatureCollectionLike>(
   geojson: T,
   findings: GapFinding[],
   options: GapOptions,
 ): GapRepairResult<T> => {
   if (!Array.isArray(geojson.features) || findings.length === 0) {
-    return { geojson, repairedKeys: new Set() };
+    return {
+      geojson,
+      repairedKeys: new Set(),
+      failedReasons: new Map(),
+    };
   }
   let repaired = geojson as FeatureCollectionLike;
   const repairedKeys = new Set<string>();
+  const failedReasons = new Map<string, GapRepairFailureReason>();
+  const spatialIndex = new RBush<IndexedPolygonFeature>();
+  const indexedByFeature = new Map<number, IndexedPolygonFeature>();
+  for (let featureIndex = 0; featureIndex < geojson.features.length; featureIndex++) {
+    const bounds = polygonFeatureBounds(geojson, featureIndex);
+    if (!bounds) continue;
+    indexedByFeature.set(featureIndex, bounds);
+    spatialIndex.insert(bounds);
+  }
 
   for (const finding of findings) {
     if (!finding.repairable) continue;
+    const key = gapFindingKey(finding);
     const endpoints = matchedEndpoints(
       repaired,
       finding,
-      options.gapToleranceMeters,
+      inferredRepairDistanceLimit(finding, options),
     );
-    if (!endpoints) continue;
+    if (!endpoints) {
+      failedReasons.set(key, "StaleTarget");
+      continue;
+    }
     const secondForFirstStart = endpoints.secondTargetsReversed
       ? endpoints.secondEnd
       : endpoints.secondStart;
@@ -234,7 +408,10 @@ export const repairGaps = <T extends FeatureCollectionLike>(
       startTarget,
       endTarget,
     );
-    if (!candidate) continue;
+    if (!candidate) {
+      failedReasons.set(key, "InvalidRepairOutput");
+      continue;
+    }
     candidate = updateSegment(
       candidate,
       finding.relatedFeatureIndex,
@@ -243,21 +420,53 @@ export const repairGaps = <T extends FeatureCollectionLike>(
       endpoints.secondTargetsReversed ? endTarget : startTarget,
       endpoints.secondTargetsReversed ? startTarget : endTarget,
     );
+    if (!candidate) {
+      failedReasons.set(key, "InvalidRepairOutput");
+      continue;
+    }
     if (
-      !candidate ||
-      !validPolygonFeature(candidate.features?.[finding.featureIndex]) ||
-      !validPolygonFeature(candidate.features?.[finding.relatedFeatureIndex]) ||
+      !validPolygonFeature(
+        repaired.features?.[finding.featureIndex],
+        candidate.features?.[finding.featureIndex],
+      ) ||
+      !validPolygonFeature(
+        repaired.features?.[finding.relatedFeatureIndex],
+        candidate.features?.[finding.relatedFeatureIndex],
+      ) ||
       !pairHasNoAreaOverlap(
         candidate,
         finding.featureIndex,
         finding.relatedFeatureIndex,
       )
     ) {
+      failedReasons.set(key, "InvalidRepairOutput");
+      continue;
+    }
+    if (
+      candidateIntroducesOverlap(
+        repaired,
+        candidate,
+        [finding.featureIndex, finding.relatedFeatureIndex],
+        spatialIndex,
+      )
+    ) {
+      failedReasons.set(key, "WouldCreateOverlap");
       continue;
     }
     repaired = candidate;
-    repairedKeys.add(gapFindingKey(finding));
+    repairedKeys.add(key);
+    for (const featureIndex of [
+      finding.featureIndex,
+      finding.relatedFeatureIndex,
+    ]) {
+      const previousBounds = indexedByFeature.get(featureIndex);
+      if (previousBounds) spatialIndex.remove(previousBounds);
+      const nextBounds = polygonFeatureBounds(repaired, featureIndex);
+      if (!nextBounds) continue;
+      indexedByFeature.set(featureIndex, nextBounds);
+      spatialIndex.insert(nextBounds);
+    }
   }
 
-  return { geojson: repaired as T, repairedKeys };
+  return { geojson: repaired as T, repairedKeys, failedReasons };
 };

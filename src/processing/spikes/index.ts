@@ -24,9 +24,10 @@ export const processSpikes = <T extends FeatureCollectionLike>(
   autoRepair = true,
 ): SpikeProcessResult<T> => {
   const detection = detectSpikes(geojson, options);
+  const attempt = repairSpikes(geojson, detection.findings);
   const repair = autoRepair
-    ? repairSpikes(geojson, detection.findings)
-    : { geojson, removedKeys: new Set<string>() };
+    ? attempt
+    : { ...attempt, geojson, removedKeys: new Set<string>() };
   return {
     geojson: repair.geojson,
     report: buildSpikeReport(
@@ -34,6 +35,7 @@ export const processSpikes = <T extends FeatureCollectionLike>(
       repair.removedKeys,
       options.baseToleranceMeters,
       options.maxTipAngleDegrees ?? DEFAULT_MAX_TIP_ANGLE_DEGREES,
+      repair.failedReasons,
     ),
   };
 };

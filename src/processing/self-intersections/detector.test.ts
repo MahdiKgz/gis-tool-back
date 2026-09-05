@@ -28,6 +28,11 @@ test("detects a bow-tie crossing and returns both segment locations", () => {
   assert.equal(result.segmentsScanned, 4);
   assert.equal(result.findings.length, 1);
   assert.equal(result.findings[0]?.intersectionKind, "Crossing");
+  assert.equal(result.findings[0]?.repairable, true);
+  assert.equal(
+    result.findings[0]?.repairStrategy,
+    "UnkinkToMultiPolygon",
+  );
   assert.deepEqual(result.findings[0]?.coordinatePath, [0, 0]);
   assert.deepEqual(result.findings[0]?.relatedCoordinatePath, [0, 2]);
   assert.deepEqual(result.findings[0]?.intersectionGeometry, {
@@ -199,4 +204,63 @@ test("leaves self-intersecting holes to invalid-hole validation", () => {
 
   assert.equal(result.ringsScanned, 1);
   assert.deepEqual(result.findings, []);
+});
+
+test("keeps a crossing manual when a polygon has holes", () => {
+  const result = detectSelfIntersections(
+    collection({
+      type: "Polygon",
+      coordinates: [
+        [
+          [0, 0],
+          [4, 4],
+          [0, 4],
+          [4, 0],
+          [0, 0],
+        ],
+        [
+          [1.8, 1.8],
+          [2.2, 1.8],
+          [2.2, 2.2],
+          [1.8, 2.2],
+          [1.8, 1.8],
+        ],
+      ],
+    }),
+  );
+
+  assert.equal(result.findings.length, 1);
+  assert.equal(result.findings[0]?.intersectionKind, "Crossing");
+  assert.equal(result.findings[0]?.repairable, false);
+  assert.equal(result.findings[0]?.repairStrategy, null);
+});
+
+test("keeps a nested polygon crossing manual because feature ownership is ambiguous", () => {
+  const result = detectSelfIntersections({
+    type: "FeatureCollection",
+    features: [
+      {
+        id: "collection",
+        geometry: {
+          type: "GeometryCollection",
+          geometries: [
+            {
+              type: "Polygon",
+              coordinates: [[
+                [0, 0],
+                [4, 4],
+                [0, 4],
+                [4, 0],
+                [0, 0],
+              ]],
+            },
+          ],
+        },
+      },
+    ],
+  });
+
+  assert.equal(result.findings.length, 1);
+  assert.deepEqual(result.findings[0]?.geometryCollectionPath, [0]);
+  assert.equal(result.findings[0]?.repairable, false);
 });

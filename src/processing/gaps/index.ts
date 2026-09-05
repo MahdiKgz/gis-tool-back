@@ -18,9 +18,10 @@ export const processGaps = <T extends FeatureCollectionLike>(
   autoRepair = false,
 ): GapProcessResult<T> => {
   const detection = detectGaps(geojson, options);
+  const attempt = repairGaps(geojson, detection.findings, options);
   const repair = autoRepair
-    ? repairGaps(geojson, detection.findings, options)
-    : { geojson, repairedKeys: new Set<string>() };
+    ? attempt
+    : { ...attempt, geojson, repairedKeys: new Set<string>() };
   return {
     geojson: repair.geojson,
     report: buildGapReport(
@@ -28,6 +29,7 @@ export const processGaps = <T extends FeatureCollectionLike>(
       options.gapToleranceMeters,
       options.minimumGapWidthMeters ?? 0,
       repair.repairedKeys,
+      repair.failedReasons,
     ),
   };
 };

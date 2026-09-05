@@ -10,17 +10,24 @@ import {
 const reportIssues = <T extends LineTopologyFinding>(
   findings: T[],
   repairedKeys: Set<string>,
+  rejectedKeys: ReadonlyMap<
+    string,
+    NonNullable<LineTopologyIssueBase["repairFailureReason"]>
+  >,
 ): Array<T & LineTopologyIssueBase> =>
   findings.map((finding) => {
-    const repaired = repairedKeys.has(lineTopologyFindingKey(finding));
+    const key = lineTopologyFindingKey(finding);
+    const repaired = repairedKeys.has(key);
+    const repairFailureReason = rejectedKeys.get(key);
     return {
       ...finding,
       status: repaired ? "Repaired" : "Unresolved",
       recommendedAction: repaired
         ? "None"
-        : finding.repairable
+        : finding.repairable && !repairFailureReason
           ? "AutoRepair"
           : "ManualReview",
+      ...(repairFailureReason ? { repairFailureReason } : {}),
     };
   });
 
@@ -38,6 +45,10 @@ const unresolvedFeatureIndexes = (
 export const buildLineTopologyReports = (
   detection: LineTopologyDetectionResult,
   repairedKeys: Set<string>,
+  rejectedKeys: ReadonlyMap<
+    string,
+    NonNullable<LineTopologyIssueBase["repairFailureReason"]>
+  >,
   appliedToleranceMeters: number,
 ): {
   undershoots: UndershootValidationReport;
@@ -46,8 +57,13 @@ export const buildLineTopologyReports = (
   const undershootIssues = reportIssues(
     detection.undershoots,
     repairedKeys,
+    rejectedKeys,
   );
-  const overshootIssues = reportIssues(detection.overshoots, repairedKeys);
+  const overshootIssues = reportIssues(
+    detection.overshoots,
+    repairedKeys,
+    rejectedKeys,
+  );
   const unresolvedUndershoots = undershootIssues.filter(
     (issue) => issue.status === "Unresolved",
   );

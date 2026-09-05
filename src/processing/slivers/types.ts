@@ -3,6 +3,9 @@ import { FeatureCollectionLike } from "../shared/geojson";
 export interface SliverOptions {
   sliverAreaThresholdM2: number;
   minCompactness?: number;
+  minDominantSharedBoundaryRatio?: number;
+  minSharedBoundaryDominanceRatio?: number;
+  minAbsorptionTargetAreaRatio?: number;
 }
 
 export interface SliverFinding {
@@ -18,6 +21,12 @@ export interface SliverFinding {
   detectionReasons: Array<"Area" | "Compactness">;
   thresholdM2: number;
   minCompactness: number;
+  absorptionTargetFeatureIndex: number | null;
+  absorptionTargetFeatureId: string | number | null;
+  dominantSharedBoundaryLengthMeters: number;
+  dominantSharedBoundaryRatio: number;
+  sharedBoundaryDominanceRatio: number | null;
+  absorptionTargetAreaRatio: number | null;
   repairable: boolean;
 }
 
@@ -26,19 +35,26 @@ export interface SliverDetectionResult {
   findings: SliverFinding[];
 }
 
+export type SliverRepairFailureReason =
+  | "StaleTarget"
+  | "InvalidRepairOutput";
+
 export interface SliverValidationReport {
   valid: boolean;
   polygonFeaturesScanned: number;
   sliversFound: number;
   sliversRemoved: number;
+  sliversAbsorbed: number;
+  sliversDeleted: number;
   unresolvedSlivers: number;
   unresolvedIssues: number;
   unresolvedFeatureIndexes: number[];
   appliedSliverAreaThresholdM2: number;
   issues: Array<
     SliverFinding & {
-      status: "Removed" | "Unresolved";
+      status: "Absorbed" | "Removed" | "Unresolved";
       recommendedAction: "None" | "AutoRepair" | "ManualReview";
+      repairFailureReason: SliverRepairFailureReason | null;
     }
   >;
 }

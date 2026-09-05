@@ -44,7 +44,7 @@ test("detects and locates a real polygon gap within tolerance", () => {
   assert.deepEqual(report.unresolvedFeatureIndexes, [0, 1]);
 });
 
-test("reports a narrow shared-boundary gap beyond repair tolerance", () => {
+test("offers a narrow complete shared-boundary gap for inferred repair", () => {
   const detection = detectGaps(
     {
       type: "FeatureCollection",
@@ -62,10 +62,70 @@ test("reports a narrow shared-boundary gap beyond repair tolerance", () => {
   assert.ok(finding.distanceMeters > 18 && finding.distanceMeters < 19);
   assert.ok(finding.sharedBoundaryRatio! > 0.99);
   assert.ok(finding.gapWidthToSharedBoundaryRatio! < 0.1);
-  assert.equal(finding.repairable, false);
+  assert.equal(finding.repairable, true);
 
   const report = buildGapReport(detection, 0.075);
-  assert.equal(report.issues[0]?.recommendedAction, "ManualReview");
+  assert.equal(report.issues[0]?.recommendedAction, "AutoRepair");
+});
+
+test("keeps an inferred repair manual when one edge has competing partners", () => {
+  const west = square(51.38, 35.68, 0.002, "west");
+  const east = square(51.3822, 35.68, 0.002, "east");
+  const duplicateEast = structuredClone(east);
+  duplicateEast.id = "duplicate-east";
+  const detection = detectGaps(
+    {
+      type: "FeatureCollection",
+      features: [west, east, duplicateEast],
+    },
+    { gapToleranceMeters: 0.075 },
+  );
+
+  const westFindings = detection.findings.filter(
+    (finding) => finding.featureId === "west",
+  );
+  assert.equal(westFindings.length, 2);
+  assert.ok(westFindings.every((finding) => !finding.repairable));
+});
+
+test("a nearby partial-edge candidate also makes an inferred target ambiguous", () => {
+  const partial = {
+    type: "Feature",
+    id: "partial",
+    properties: {},
+    geometry: {
+      type: "Polygon",
+      coordinates: [[
+        [51.3820005, 35.6808],
+        [51.3821, 35.6808],
+        [51.3821, 35.6812],
+        [51.3820005, 35.6812],
+        [51.3820005, 35.6808],
+      ]],
+    },
+  };
+  const detection = detectGaps(
+    {
+      type: "FeatureCollection",
+      features: [
+        square(51.38, 35.68, 0.002, "west"),
+        square(51.3822, 35.68, 0.002, "east"),
+        partial,
+      ],
+    },
+    { gapToleranceMeters: 0.075 },
+  );
+
+  const inferred = detection.findings.find(
+    (finding) => finding.featureId === "west" && finding.relatedFeatureId === "east",
+  );
+  const partialFinding = detection.findings.find(
+    (finding) => finding.relatedFeatureId === "partial",
+  );
+  assert.ok(inferred);
+  assert.ok(partialFinding);
+  assert.equal(inferred.repairable, false);
+  assert.equal(partialFinding.repairable, false);
 });
 
 test("does not infer a gap from a short partial boundary alignment", () => {
@@ -166,5 +226,16 @@ test("rejects invalid gap tolerances", () => {
         { gapToleranceMeters: 1, minimumGapWidthMeters: -0.001 },
       ),
     /finite non-negative/,
+  );
+  assert.throws(
+    () =>
+      detectGaps(
+        { type: "FeatureCollection", features: [] },
+        {
+          gapToleranceMeters: 1,
+          maxGapWidthToSharedBoundaryRatio: 2,
+        },
+      ),
+    /between 0 and 1/,
   );
 });

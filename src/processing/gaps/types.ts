@@ -41,6 +41,11 @@ export interface GapDetectionResult {
   findings: GapFinding[];
 }
 
+export type GapRepairFailureReason =
+  | "StaleTarget"
+  | "InvalidRepairOutput"
+  | "WouldCreateOverlap";
+
 export interface GapValidationReport {
   valid: boolean;
   polygonComponentsScanned: number;
@@ -55,6 +60,7 @@ export interface GapValidationReport {
     GapFinding & {
       status: "Repaired" | "Unresolved";
       recommendedAction: "None" | "AutoRepair" | "ManualReview";
+      repairFailureReason: GapRepairFailureReason | null;
     }
   >;
 }

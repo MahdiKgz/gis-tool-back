@@ -71,6 +71,7 @@ interface UndershootCandidate {
   targetFraction: number;
   distanceMeters: number;
   detectionMode: "Tolerance" | "DirectionalBoundaryPattern";
+  unambiguousTarget: boolean;
 }
 
 interface OvershootCandidate {
@@ -79,6 +80,7 @@ interface OvershootCandidate {
   intersectionPosition: Position;
   overrunDistanceMeters: number;
   detectionMode: "Tolerance" | "DirectionalBoundaryPattern";
+  unambiguousTarget: boolean;
 }
 
 const normalizeOptions = (
@@ -274,7 +276,8 @@ const closestOvershoot = (
   targetParts: TargetPart[],
   spatialIndex: RBush<IndexedTargetSegment>,
 ): OvershootCandidate | null => {
-  let best: OvershootCandidate | null = null;
+  const candidates: OvershootCandidate[] = [];
+  const lineIntersectionDistances: number[] = [];
   const maximumInferredDistance = inferredDistanceMeters(
     lineLengthMeters,
     options,
@@ -304,6 +307,12 @@ const closestOvershoot = (
       const overrunDistanceMeters =
         terminal.distanceBeforeMeters +
         segmentLengthMeters * segmentFractionFromEndpoint;
+      if (
+        targetPart.kind === "Line" &&
+        overrunDistanceMeters <= maximumInferredDistance
+      ) {
+        lineIntersectionDistances.push(overrunDistanceMeters);
+      }
       const allowedDistance =
         targetPart.kind === "Line"
           ? options.toleranceMeters
@@ -311,12 +320,11 @@ const closestOvershoot = (
       if (
         overrunDistanceMeters <= CONTACT_EPSILON_METERS ||
         overrunDistanceMeters > allowedDistance ||
-        overrunDistanceMeters >= lineLengthMeters - overrunDistanceMeters ||
-        (best && best.overrunDistanceMeters <= overrunDistanceMeters)
+        overrunDistanceMeters >= lineLengthMeters - overrunDistanceMeters
       ) {
         continue;
       }
-      best = {
+      candidates.push({
         target,
         sourceSegmentIndex: terminal.segmentIndex,
         intersectionPosition: intersection.position,
@@ -325,10 +333,36 @@ const closestOvershoot = (
           overrunDistanceMeters <= options.toleranceMeters
             ? "Tolerance"
             : "DirectionalBoundaryPattern",
-      };
+        unambiguousTarget: true,
+      });
     }
   }
-  return best;
+  candidates.sort(
+    (first, second) =>
+      first.overrunDistanceMeters - second.overrunDistanceMeters ||
+      first.target.targetPartIndex - second.target.targetPartIndex ||
+      first.target.segmentIndex - second.target.segmentIndex ||
+      first.sourceSegmentIndex - second.sourceSegmentIndex,
+  );
+  const best = candidates[0];
+  if (!best || best.detectionMode === "Tolerance") return best ?? null;
+  return {
+    ...best,
+    unambiguousTarget: candidates.every(
+      (candidate) =>
+        distanceMetersBetweenPositions(
+          best.intersectionPosition,
+          candidate.intersectionPosition,
+        ) <= CONTACT_EPSILON_METERS ||
+        candidate.overrunDistanceMeters - best.overrunDistanceMeters >
+          options.toleranceMeters,
+    ) &&
+      lineIntersectionDistances.every(
+        (distanceMeters) =>
+          distanceMeters >=
+          best.overrunDistanceMeters - CONTACT_EPSILON_METERS,
+      ),
+  };
 };
 
 const pointBounds = (position: Position): SpatialBounds => ({
@@ -376,6 +410,7 @@ const closestToleranceUndershoot = (
       targetFraction: proximity.fraction,
       distanceMeters: proximity.distanceMeters,
       detectionMode: "Tolerance",
+      unambiguousTarget: true,
     };
   }
   return { candidate, connected };
@@ -409,6 +444,7 @@ const closestDirectionalBoundaryUndershoot = (
   part: LinePart,
   endpoint: EndpointCandidate,
   maximumDistanceMeters: number,
+  ambiguityToleranceMeters: number,
   targetParts: TargetPart[],
   spatialIndex: RBush<IndexedTargetSegment>,
 ): UndershootCandidate | null => {
@@ -418,12 +454,13 @@ const closestDirectionalBoundaryUndershoot = (
     maximumDistanceMeters,
   );
   if (!extended) return null;
-  let best: UndershootCandidate | null = null;
+  const candidates: UndershootCandidate[] = [];
+  const lineIntersectionDistances: number[] = [];
   for (const target of spatialIndex.search(
     segmentBounds(endpoint.endpointPosition, extended),
   )) {
     const targetPart = targetParts[target.targetPartIndex]!;
-    if (targetPart.kind !== "PolygonBoundary") continue;
+    if (isOwnLineTarget(part, targetPart)) continue;
     const intersection = segmentIntersection(
       endpoint.endpointPosition,
       extended,
@@ -435,22 +472,51 @@ const closestDirectionalBoundaryUndershoot = (
       endpoint.endpointPosition,
       intersection.position,
     );
+    if (targetPart.kind === "Line") {
+      if (distanceMeters <= maximumDistanceMeters) {
+        lineIntersectionDistances.push(distanceMeters);
+      }
+      continue;
+    }
     if (
       distanceMeters <= CONTACT_EPSILON_METERS ||
-      distanceMeters > maximumDistanceMeters ||
-      (best && best.distanceMeters <= distanceMeters)
+      distanceMeters > maximumDistanceMeters
     ) {
       continue;
     }
-    best = {
+    candidates.push({
       target,
       targetPosition: intersection.position,
       targetFraction: intersection.secondFraction,
       distanceMeters,
       detectionMode: "DirectionalBoundaryPattern",
-    };
+      unambiguousTarget: true,
+    });
   }
-  return best;
+  candidates.sort(
+    (first, second) =>
+      first.distanceMeters - second.distanceMeters ||
+      first.target.targetPartIndex - second.target.targetPartIndex ||
+      first.target.segmentIndex - second.target.segmentIndex,
+  );
+  const best = candidates[0];
+  if (!best) return null;
+  return {
+    ...best,
+    unambiguousTarget: candidates.every(
+      (candidate) =>
+        distanceMetersBetweenPositions(
+          best.targetPosition,
+          candidate.targetPosition,
+        ) <= CONTACT_EPSILON_METERS ||
+        candidate.distanceMeters - best.distanceMeters >
+          ambiguityToleranceMeters,
+    ) &&
+      lineIntersectionDistances.every(
+        (distanceMeters) =>
+          distanceMeters >= best.distanceMeters - CONTACT_EPSILON_METERS,
+      ),
+  };
 };
 
 const closestUndershoot = (
@@ -474,6 +540,7 @@ const closestUndershoot = (
     part,
     endpoint,
     inferredDistanceMeters(lineLengthMeters, options),
+    options.toleranceMeters,
     targetParts,
     spatialIndex,
   );
@@ -592,7 +659,10 @@ export const detectLineTopology = (
       if (overshoot) {
         const relatedPart = targetParts[overshoot.target.targetPartIndex]!;
         const repairable =
-          overshoot.overrunDistanceMeters <= normalized.toleranceMeters;
+          overshoot.overrunDistanceMeters <= normalized.toleranceMeters ||
+          (overshoot.detectionMode === "DirectionalBoundaryPattern" &&
+            relatedPart.kind === "PolygonBoundary" &&
+            overshoot.unambiguousTarget);
         const base = baseFinding(
           part,
           relatedPart,
@@ -635,7 +705,10 @@ export const detectLineTopology = (
         seenEndpointConnections.add(connectionKey);
       }
       const repairable =
-        undershoot.distanceMeters <= normalized.toleranceMeters &&
+        (undershoot.distanceMeters <= normalized.toleranceMeters ||
+          (undershoot.detectionMode === "DirectionalBoundaryPattern" &&
+            relatedPart.kind === "PolygonBoundary" &&
+            undershoot.unambiguousTarget)) &&
         undershootIsRepairable(part, endpoint, undershoot.targetPosition);
       const base = baseFinding(
         part,

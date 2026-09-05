@@ -104,6 +104,8 @@ Dry-run includes these topology checks:
 - `overlaps` / `POLYGON_OVERLAP`
 - `gaps` / `POLYGON_GAP`
 - `slivers` / `SLIVER_POLYGON`
+- `selfIntersections` / `SELF_INTERSECTION`
+- `spikes` / `SPIKE`
 - `undershoots` / `LINE_UNDERSHOOT`
 - `overshoots` / `LINE_OVERSHOOT`
 
@@ -111,9 +113,14 @@ The applied metric and shape thresholds are exposed under
 `report.appliedOptions`. `minimumGapWidthMeters` is the inclusive accepted gap
 width; `gapToleranceMeters` is the larger maximum auto-repair radius.
 Detection can report a high-confidence shape or shared-boundary anomaly beyond
-the repair radius. Such findings are `ManualReview`;
-`AutoRepairAvailable` remains restricted to safe endpoint or gap movements
-inside that radius.
+the base repair radius. `AutoRepairAvailable` is restricted to repairs backed
+by unambiguous topology: strongly evidenced full-edge gaps, dominant-neighbor
+sliver absorption, isolated simple polygon crossings, strong outward spikes,
+and line endpoints with one safe target. Ambiguous, destructive, or
+post-validation-failing candidates remain `ManualReview`. Dry-run executes the
+same repair feasibility boundary against an immutable working copy, so a
+candidate that would be rolled back during healing is not advertised as an
+available automatic repair.
 
 Use `report.issueGroups` for the frontend error list. It contains one item per
 `check` and `code` combination, regardless of whether the same problem affects
@@ -194,11 +201,14 @@ server-side output path is never exposed:
     "status": "completed",
     "progress": 100,
     "result": {
-      "repairsApplied": 7,
+      "repairsApplied": 6,
       "repairs": {
-        "gapsClosed": 2,
-        "overlapsHealed": 1,
-        "duplicateVerticesRemoved": 4
+        "gapsClosed": 1,
+        "sliversRemovedCount": 1,
+        "selfIntersectionsRepaired": 1,
+        "spikesRemoved": 1,
+        "undershootsRepaired": 1,
+        "overshootsRepaired": 1
       },
       "output": {
         "fileName": "cleaned-source.geojson",

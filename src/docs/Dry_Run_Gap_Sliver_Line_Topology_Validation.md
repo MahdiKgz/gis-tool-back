@@ -1,10 +1,12 @@
 # Dry-Run Shared-Boundary Topology Validation
 
 SnapGIS reports polygon overlaps, gaps, sliver polygons, line undershoots, and
-line overshoots during read-only upload analysis. Detection is deliberately
-broader than automatic repair: scale-independent or inferred findings remain
-manual-review issues unless their coordinate movement falls inside the
-configured tolerance.
+line overshoots during read-only upload analysis. Detection remains read-only,
+while healing can use bounded scale-independent evidence beyond the base
+tolerance. Inferred repairs require an unambiguous target and must pass
+transactional post-repair topology validation. Dry-run evaluates that same
+repair boundary on an immutable candidate and advertises auto repair only when
+the candidate would commit successfully.
 
 ## Configuration
 
@@ -15,11 +17,14 @@ The upload `tolerance` is supplied in millimetres. SnapGIS derives:
 - gap repair tolerance: three times the line topology tolerance;
 - small-area threshold: `(line topology tolerance * 10)²` square metres;
 - sliver compactness threshold: `0.1`, using `4π × area / perimeter²`;
+- compactness-only sliver absorption gates: `0.4` dominant shared-perimeter
+  ratio, `2` boundary-dominance ratio, and `10` target-to-sliver area ratio;
 - maximum inferred shared-boundary gap width: `50` metres, additionally gated
   by a maximum width-to-shared-length ratio of `0.1` and a minimum shared
-  length ratio of `0.5`; and
+  length ratio of `0.5`;
 - maximum inferred line-boundary error: the lesser of `100` metres or `25%`
-  of the source line length.
+  of the source line length; and
+- strong outward-ring spike threshold: a shorter-leg-to-base ratio of `10`.
 
 The applied values are returned under `report.appliedOptions`.
 
@@ -53,15 +58,24 @@ MultiPolygon feature are not treated as dataset gaps.
 Findings contain both feature IDs/indexes, both polygon and coordinate paths,
 nearest positions, distance, detection mode, and shared-boundary metrics. A
 gap is `AutoRepairAvailable` only when its full exterior edges overlap by at
-least 98%, both endpoint pairs are inside the applied gap tolerance, and the
-repair passes positive-area, self-intersection, and overlap guards. Healing
-moves both matching edges to their shared midpoint so neither parcel is
-treated as authoritative. Partial edges, corner proximity, holes, and inferred
-gaps beyond tolerance remain `ManualReview`.
+least 98% and each edge has exactly one repair partner. Both endpoint pairs
+must either be inside the applied gap tolerance or satisfy the inferred bounds:
+at most 50 metres and at most 10% of the shared edge length. Healing moves both
+matching edges to their shared midpoint so neither parcel is treated as
+authoritative.
+
+The candidate must retain positive area, ring orientation, valid holes,
+multipart integrity, and a simple boundary. It must not overlap its paired
+parcel or increase positive-area overlap with any RBush-selected third-party
+polygon. Failed transactional repairs remain unchanged and include a failure
+reason. Partial edges, corner proximity, competing partners, and wider
+relative gaps remain `ManualReview`.
 
 This separation is intentional: at a 50 mm setting, widths up to and including
-50 mm are accepted, while a 55 mm complete-edge gap is reported and can still
-be repaired inside the 150 mm repair radius.
+50 mm are accepted, a 55 mm complete-edge gap can be repaired inside the
+150 mm coordinate radius, and a longer complete-edge cadastral gap can repair
+only when the independent absolute, relative-width, uniqueness, and topology
+guards all pass.
 
 ## Sliver polygons
 
@@ -73,10 +87,20 @@ it. Zero-area polygons remain the responsibility of GEO-007.
 
 Components below the configured minimum mapping area are
 `AutoRepairAvailable`; healing removes the standalone polygon or only the
-affected `MultiPolygon` component. Compactness-only findings stay
-`ManualReview`, because a long narrow polygon can be a legitimate parcel and
-cannot be reconstructed safely from shape alone. Nested polygons inside a
-`GeometryCollection` also remain manual.
+affected `MultiPolygon` component. A compactness-only sliver is also eligible
+for absorption when one non-sliver neighbor owns at least 40% of its perimeter,
+that shared boundary is at least twice the runner-up boundary (or there is no
+runner-up), the polygons have zero-area boundary contact rather than a small
+separation or overlap, and the target is at least ten times larger by area.
+
+Absorption unions the component into that dominant neighbor, conserves area,
+keeps the target feature id and properties, and removes only the source
+component. The merged target must retain simple components, valid holes, and
+valid multipart relationships, and its component count must not increase; a
+nearby but disconnected sliver is never merely reclassified as part of the
+target. Reports distinguish `Absorbed` from ordinary `Removed` repairs.
+Two-sided or weakly adjacent narrow parcels and nested polygons inside a
+`GeometryCollection` remain manual.
 
 ## Line undershoots
 
@@ -87,8 +111,11 @@ reaches that boundary inside the bounded relative-distance window.
 
 Only the closest candidate is reported per endpoint. Disconnected
 endpoint-to-endpoint relationships are deduplicated. Healing moves an endpoint
-only when the target is inside the metric tolerance and preserves additional
-Z/M ordinates. Directionally inferred findings require manual review.
+inside the metric tolerance, or to a directionally inferred polygon boundary
+when competing boundary locations are outside the base-tolerance ambiguity
+band and no intervening line is crossed. Additional Z/M ordinates are
+preserved. The resulting line must remain non-collapsed and simple, and its
+referenced target segment must still exist after every repair in the batch.
 
 ## Line overshoots
 
@@ -97,8 +124,11 @@ crosses another indexed line within tolerance, or crosses a polygon boundary
 and continues for a bounded distance relative to total line length.
 
 Distance is measured along terminal line segments. SnapGIS rejects a candidate
-if trimming would remove half or more of the source line. Healing occurs only
-inside tolerance; inferred polygon-boundary overshoots remain manual.
+if trimming would remove half or more of the source line. A directionally
+inferred polygon-boundary overshoot can be trimmed when the target is unique
+within the ambiguity band and no nearer line intersection exists. The
+resulting line must remain non-collapsed and simple. Dependent endpoint edits
+are rolled back if another repair trims away their target segment.
 
 ## Relational output
 
@@ -118,7 +148,11 @@ contains both complete source features once.
 - Spatial candidate discovery is O(n log n) with RBush plus work proportional
   to nearby segment candidates; there is no unconditional feature-pair O(n²)
   scan.
-- Findings beyond repair tolerance never advertise automatic repair.
+- Failed repair-boundary validation is surfaced as manual review with a
+  machine-readable failure reason instead of claiming a repair occurred.
+- Worker line healing uses final repaired polygon boundaries, matching the
+  full-context dry-run detector rather than evaluating an isolated line-only
+  collection.
 
 Integration fixtures are
 `src/test-data/geojson/dry-run-gap-sliver-line-topology.geojson` and

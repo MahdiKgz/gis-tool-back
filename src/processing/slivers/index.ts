@@ -18,15 +18,23 @@ export const processSlivers = <T extends FeatureCollectionLike>(
   autoRepair = false,
 ): SliverProcessResult<T> => {
   const detection = detectSlivers(geojson, options);
+  const attempt = repairSlivers(geojson, detection.findings);
   const repair = autoRepair
-    ? repairSlivers(geojson, detection.findings)
-    : { geojson, removedKeys: new Set<string>() };
+    ? attempt
+    : {
+        ...attempt,
+        geojson,
+        removedKeys: new Set<string>(),
+        absorbedIntoFeatureIndexes: new Map<string, number>(),
+      };
   return {
     geojson: repair.geojson,
     report: buildSliverReport(
       detection,
       options.sliverAreaThresholdM2,
       repair.removedKeys,
+      repair.absorbedIntoFeatureIndexes,
+      repair.failedReasons,
     ),
   };
 };

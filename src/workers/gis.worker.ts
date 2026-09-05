@@ -5,8 +5,6 @@ import path from "path";
 import fs from "fs";
 
 // --- Turf.js Modules ---
-import kinks from "@turf/kinks";
-import unkinkPolygon from "@turf/unkink-polygon";
 import distance from "@turf/distance";
 import { point, featureCollection } from "@turf/helpers";
 import area from "@turf/area";
@@ -35,7 +33,7 @@ import {
 } from "../processing/gaps";
 import { processInvalidHoles } from "../processing/invalid-holes";
 import { processInvalidRings } from "../processing/invalid-rings";
-import { processLineTopology } from "../processing/line-topology";
+import { processLineTopologyWithPolygonContext } from "../processing/line-topology";
 import { processMultipartIntegrity } from "../processing/multipart-integrity";
 import {
   buildRingClosureReport,
@@ -43,6 +41,7 @@ import {
 } from "../processing/ring-closure";
 import { processRingOrientation } from "../processing/ring-orientation";
 import { canonicalRingSignature } from "../processing/shared/ring-signature";
+import { processSelfIntersections } from "../processing/self-intersections";
 import { processSpikes } from "../processing/spikes";
 import {
   computeSliverAreaThresholdM2,
@@ -466,8 +465,12 @@ const runMapshaperPipeline = async (
 ): Promise<{
   result: any;
   sliversRemovedCount: number;
+  sliversAbsorbedCount: number;
+  sliversDeletedCount: number;
+  sliverRepairValidationReport: any;
   gapsFound: number;
   gapsClosed: number;
+  gapValidationReport: any;
 }> =>
   new Promise((resolve, reject) => {
     const minAreaM2 = computeSliverAreaThresholdM2(toleranceMeters);
@@ -477,7 +480,6 @@ const runMapshaperPipeline = async (
       geojson,
       {
         sliverAreaThresholdM2: minAreaM2,
-        minCompactness: 0,
       },
       true,
     );
@@ -491,8 +493,12 @@ const runMapshaperPipeline = async (
       resolve({
         result: gapResult.geojson,
         sliversRemovedCount: sliverResult.report.sliversRemoved,
+        sliversAbsorbedCount: sliverResult.report.sliversAbsorbed,
+        sliversDeletedCount: sliverResult.report.sliversDeleted,
+        sliverRepairValidationReport: sliverResult.report,
         gapsFound: gapResult.report.gapsFound,
         gapsClosed: gapResult.report.gapsRepaired,
+        gapValidationReport: gapResult.report,
       });
       return;
     }
@@ -513,10 +519,21 @@ const runMapshaperPipeline = async (
 
         const result = JSON.parse(output["output.json"].toString("utf-8"));
         const sliversRemovedCount = sliverResult.report.sliversRemoved;
+        const sliversAbsorbedCount = sliverResult.report.sliversAbsorbed;
+        const sliversDeletedCount = sliverResult.report.sliversDeleted;
         const gapsFound = gapResult.report.gapsFound;
         const gapsClosed = gapResult.report.gapsRepaired;
 
-        resolve({ result, sliversRemovedCount, gapsFound, gapsClosed });
+        resolve({
+          result,
+          sliversRemovedCount,
+          sliversAbsorbedCount,
+          sliversDeletedCount,
+          sliverRepairValidationReport: sliverResult.report,
+          gapsFound,
+          gapsClosed,
+          gapValidationReport: gapResult.report,
+        });
       },
     );
   });
@@ -946,6 +963,46 @@ export const gisWorker = new Worker(
       );
     }
 
+    // Repair isolated exterior-ring crossings before winding validation.
+    // A bow-tie has indeterminate signed area, so running orientation first
+    // used to quarantine exactly the simple kink that the healer could fix.
+    // Already-quarantined features are represented by null geometries in the
+    // working view and merged back unchanged.
+    const selfIntersectionInput = {
+      ...geojson,
+      features: geojson.features.map((feature: any, featureIndex: number) =>
+        quarantinedFeatureIndexes.has(featureIndex)
+          ? { ...feature, geometry: null }
+          : feature,
+      ),
+    };
+    const selfIntersectionResult = processSelfIntersections(
+      selfIntersectionInput,
+      true,
+    );
+    geojson = {
+      ...geojson,
+      features: geojson.features.map((feature: any, featureIndex: number) =>
+        quarantinedFeatureIndexes.has(featureIndex)
+          ? feature
+          : selfIntersectionResult.geojson.features[featureIndex],
+      ),
+    };
+    const selfIntersectionValidationReport = selfIntersectionResult.report;
+    for (const featureIndex of
+      selfIntersectionValidationReport.unresolvedFeatureIndexes) {
+      quarantinedFeatureIndexes.add(featureIndex);
+    }
+
+    if (selfIntersectionValidationReport.selfIntersectionsFound > 0) {
+      console.log(
+        `🟦 [SnapGIS] Self-intersections — found: ` +
+          `${selfIntersectionValidationReport.selfIntersectionsFound} | repaired: ` +
+          `${selfIntersectionValidationReport.selfIntersectionsRepaired} | unresolved: ` +
+          `${selfIntersectionValidationReport.unresolvedIssues}`,
+      );
+    }
+
     // GEO-004 normalizes RFC 7946 winding before polygon topology work:
     // exterior rings counterclockwise, interior rings clockwise.
     const ringOrientationResult = processRingOrientation(geojson);
@@ -987,8 +1044,9 @@ export const gisWorker = new Worker(
       );
     }
 
-    // GEO-006 removes only high-confidence narrow backtracks whose shoulder
-    // width falls within the job's metric tolerance.
+    // GEO-006 removes high-confidence narrow backtracks. Candidates either
+    // fit the metric tolerance or are strongly evidenced outward ring spikes;
+    // every edit is still accepted only after full feature-topology checks.
     const spikeResult = processSpikes(geojson, {
       baseToleranceMeters: polyToleranceMeters,
     });
@@ -1041,15 +1099,16 @@ export const gisWorker = new Worker(
     }
 
     // Slivers use both the tolerance-derived area threshold and the
-    // scale-independent compactness gate. Minimum-area components are safe
-    // auto-repair candidates; compactness-only narrow parcels remain manual.
+    // scale-independent compactness gate. Minimum-area components retain the
+    // deletion policy; compactness-only components require a dominant,
+    // substantially larger adjacent parcel before absorption is available.
     const inputSliverValidationReport = processSlivers(geojson, {
       sliverAreaThresholdM2: minSliverAreaM2,
     }).report;
     const inputSliverCount = inputSliverValidationReport.sliversFound;
     const repairableSliverFeatureIndexes = new Set(
       inputSliverValidationReport.issues
-        .filter((issue) => issue.repairable)
+        .filter((issue) => issue.recommendedAction === "AutoRepair")
         .map((issue) => issue.featureIndex),
     );
 
@@ -1147,22 +1206,6 @@ export const gisWorker = new Worker(
     );
     await cancellationCheckpoint();
 
-    const lineTopologyResult = processLineTopology(
-      featureCollection(lineFeatures),
-      { toleranceMeters: polyToleranceMeters },
-    );
-    const undershootValidationReport = lineTopologyResult.reports.undershoots;
-    const overshootValidationReport = lineTopologyResult.reports.overshoots;
-    const healedLineCount = new Set(
-      [
-        ...undershootValidationReport.issues,
-        ...overshootValidationReport.issues,
-      ]
-        .filter((issue) => issue.status === "Repaired")
-        .map((issue) => issue.featureIndex),
-    ).size;
-    const processedLines = lineTopologyResult.geojson;
-
     await job.updateProgress(
       createHealingProgress(40, "healing", {
         sliver: inputSliverCount,
@@ -1171,8 +1214,8 @@ export const gisWorker = new Worker(
     );
     await cancellationCheckpoint();
 
-    // Overlap healing must run before kink detection — overlapping polygons
-    // can produce false kink reports.
+    // Resolve polygon overlaps before gap/sliver work so downstream
+    // adjacency decisions use the geometry that will actually be emitted.
     let overlapsHealed = 0;
     let overlapsCritical = 0;
     let overlapErrorLog: OverlapEntry[] = [];
@@ -1200,19 +1243,9 @@ export const gisWorker = new Worker(
     );
     await cancellationCheckpoint();
 
-    let kinkCount = 0;
-    let healedPolysList: any[] = [];
-
-    for (const [featureOffset, feature] of polyFeaturesAfterOverlap.entries()) {
-      if (featureOffset % 100 === 0) await cancellationCheckpoint();
-      const featureKinks = kinks(feature);
-      if (featureKinks.features.length > 0) {
-        kinkCount += featureKinks.features.length;
-        healedPolysList.push(...unkinkPolygon(feature).features);
-      } else {
-        healedPolysList.push(feature);
-      }
-    }
+    const kinkCount =
+      selfIntersectionValidationReport.selfIntersectionsFound;
+    let healedPolysList: any[] = polyFeaturesAfterOverlap;
 
     await job.updateProgress(
       createHealingProgress(60, "healing", {
@@ -1227,8 +1260,12 @@ export const gisWorker = new Worker(
     // Mapshaper receives un-rewound polygons and silently drops holes.
     let processedPolys = featureCollection([] as any[]);
     let sliversRemovedCount = 0;
+    let sliversAbsorbedCount = 0;
+    let sliversDeletedCount = 0;
+    let sliverRepairValidationReport: any = null;
     let gapsFound = 0;
     let gapsClosed = 0;
+    let gapValidationReport: any = null;
     let postProcessingRingsOrientationNormalized = 0;
     let postProcessingRingOrientationIssuesUnresolved = 0;
 
@@ -1257,9 +1294,36 @@ export const gisWorker = new Worker(
       postProcessingRingOrientationIssuesUnresolved +=
         outputOrientationResult.report.unresolvedIssues;
       sliversRemovedCount = mapshaperOutput.sliversRemovedCount;
+      sliversAbsorbedCount = mapshaperOutput.sliversAbsorbedCount;
+      sliversDeletedCount = mapshaperOutput.sliversDeletedCount;
+      sliverRepairValidationReport =
+        mapshaperOutput.sliverRepairValidationReport;
       gapsFound = mapshaperOutput.gapsFound;
       gapsClosed = mapshaperOutput.gapsClosed;
+      gapValidationReport = mapshaperOutput.gapValidationReport;
     }
+
+    // Endpoint topology must see polygon boundaries. The former worker path
+    // passed only line features even though dry-run used the complete dataset,
+    // so every line-to-polygon undershoot/overshoot vanished during healing.
+    // Run this last, against the final repaired polygon boundaries, and keep
+    // only the line prefix in the emitted line collection.
+    const lineTopologyResult = processLineTopologyWithPolygonContext(
+      lineFeatures,
+      processedPolys.features,
+      { toleranceMeters: polyToleranceMeters },
+    );
+    const undershootValidationReport = lineTopologyResult.reports.undershoots;
+    const overshootValidationReport = lineTopologyResult.reports.overshoots;
+    const healedLineCount = new Set(
+      [
+        ...undershootValidationReport.issues,
+        ...overshootValidationReport.issues,
+      ]
+        .filter((issue) => issue.status === "Repaired")
+        .map((issue) => issue.featureIndex),
+    ).size;
+    const processedLines = lineTopologyResult.geojson;
 
     await job.updateProgress(
       createHealingProgress(80, "report-generation", {
@@ -1306,6 +1370,9 @@ export const gisWorker = new Worker(
     return {
       success: true,
       kinksFound: kinkCount,
+      selfIntersectionsRepaired:
+        selfIntersectionValidationReport.selfIntersectionsRepaired,
+      selfIntersectionValidationReport,
       healedUndershootOvershoot: healedLineCount,
       undershootsFound: undershootValidationReport.undershootsFound,
       undershootsRepaired: undershootValidationReport.undershootsRepaired,
@@ -1315,9 +1382,13 @@ export const gisWorker = new Worker(
       overshootValidationReport,
       inputSliverCount,
       sliversRemovedCount,
+      sliversAbsorbedCount,
+      sliversDeletedCount,
       inputSliverValidationReport,
+      sliverRepairValidationReport,
       gapsFound,
       gapsClosed,
+      gapValidationReport,
       overlapsHealed,
       overlapsCritical,
       overlapErrorLog,
