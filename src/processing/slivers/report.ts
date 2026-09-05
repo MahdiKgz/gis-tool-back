@@ -1,21 +1,35 @@
-import { SliverDetectionResult, SliverValidationReport } from "./types";
+import {
+  SliverDetectionResult,
+  SliverRepairFailureReason,
+  SliverValidationReport,
+} from "./types";
 import { sliverFindingKey } from "./repair";
 
 export const buildSliverReport = (
   detection: SliverDetectionResult,
   appliedSliverAreaThresholdM2: number,
   removedKeys: Set<string> = new Set(),
+  absorbedIntoFeatureIndexes: ReadonlyMap<string, number> = new Map(),
+  failedReasons: ReadonlyMap<string, SliverRepairFailureReason> = new Map(),
 ): SliverValidationReport => {
   const issues = detection.findings.map((finding) => {
-    const removed = removedKeys.has(sliverFindingKey(finding));
+    const key = sliverFindingKey(finding);
+    const removed = removedKeys.has(key);
+    const absorbed = absorbedIntoFeatureIndexes.has(key);
+    const repairFailureReason = failedReasons.get(key) ?? null;
     return {
       ...finding,
-      status: removed ? ("Removed" as const) : ("Unresolved" as const),
+      status: absorbed
+        ? ("Absorbed" as const)
+        : removed
+          ? ("Removed" as const)
+          : ("Unresolved" as const),
       recommendedAction: removed
         ? ("None" as const)
-        : finding.repairable
+        : finding.repairable && repairFailureReason === null
           ? ("AutoRepair" as const)
           : ("ManualReview" as const),
+      repairFailureReason,
     };
   });
   const unresolved = issues.filter((issue) => issue.status === "Unresolved");
@@ -24,6 +38,8 @@ export const buildSliverReport = (
     polygonFeaturesScanned: detection.polygonFeaturesScanned,
     sliversFound: detection.findings.length,
     sliversRemoved: removedKeys.size,
+    sliversAbsorbed: absorbedIntoFeatureIndexes.size,
+    sliversDeleted: removedKeys.size - absorbedIntoFeatureIndexes.size,
     unresolvedSlivers: unresolved.length,
     unresolvedIssues: unresolved.length,
     unresolvedFeatureIndexes: [

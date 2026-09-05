@@ -4,7 +4,9 @@ import { processGeometryDimensions } from "../processing/geometry-dimensions";
 import { processGeometryTypes } from "../processing/geometry-types";
 import {
   computeGapToleranceMeters,
+  DEFAULT_MAX_GAP_WIDTH_TO_SHARED_BOUNDARY_RATIO,
   DEFAULT_MAX_INFERRED_GAP_WIDTH_M,
+  DEFAULT_MIN_SHARED_BOUNDARY_RATIO,
   processGaps,
 } from "../processing/gaps";
 import { processInvalidHoles } from "../processing/invalid-holes";
@@ -22,10 +24,16 @@ import {
   FeatureCollectionLike,
   GeoJsonFeatureLike,
 } from "../processing/shared/geojson";
-import { processSpikes } from "../processing/spikes";
+import {
+  processSpikes,
+  STRONG_RING_SPIKE_MIN_LEG_TO_BASE_RATIO,
+} from "../processing/spikes";
 import {
   computeSliverAreaThresholdM2,
+  DEFAULT_MIN_ABSORPTION_TARGET_AREA_RATIO,
+  DEFAULT_MIN_DOMINANT_SHARED_BOUNDARY_RATIO,
   DEFAULT_MIN_SLIVER_COMPACTNESS,
+  DEFAULT_MIN_SHARED_BOUNDARY_DOMINANCE_RATIO,
   processSlivers,
 } from "../processing/slivers";
 import { processTinyPolygons } from "../processing/tiny-polygons";
@@ -103,12 +111,18 @@ export interface DryRunReport {
     tinyAreaThresholdM2: number;
     sliverAreaThresholdM2: number;
     sliverMinCompactness: number;
+    sliverMinDominantSharedBoundaryRatio: number;
+    sliverMinSharedBoundaryDominanceRatio: number;
+    sliverMinAbsorptionTargetAreaRatio: number;
     gapToleranceMeters: number;
     minimumGapWidthMeters: number;
     maxInferredGapWidthMeters: number;
+    maxGapWidthToSharedBoundaryRatio: number;
+    minGapSharedBoundaryRatio: number;
     lineTopologyToleranceMeters: number;
     maxInferredLineErrorMeters: number;
     spikeBaseToleranceMeters: number;
+    strongRingSpikeMinLegToBaseRatio: number;
     maxCoordinateDecimalPlaces: number;
   };
   issues: DryRunIssue[];
@@ -182,7 +196,10 @@ const normalizeIssue = (
       relatedPolygonPath: numericPath(issue, "relatedPolygonPath"),
     },
     disposition:
-      issue.repairable === true ? "AutoRepairAvailable" : "ManualReview",
+      issue.repairable === true &&
+      issue.repairFailureReason == null
+        ? "AutoRepairAvailable"
+        : "ManualReview",
     details: { ...issue },
   };
 };
@@ -282,12 +299,23 @@ export const analyzeGeoJson = (
       tinyAreaThresholdM2,
       sliverAreaThresholdM2: tinyAreaThresholdM2,
       sliverMinCompactness: DEFAULT_MIN_SLIVER_COMPACTNESS,
+      sliverMinDominantSharedBoundaryRatio:
+        DEFAULT_MIN_DOMINANT_SHARED_BOUNDARY_RATIO,
+      sliverMinSharedBoundaryDominanceRatio:
+        DEFAULT_MIN_SHARED_BOUNDARY_DOMINANCE_RATIO,
+      sliverMinAbsorptionTargetAreaRatio:
+        DEFAULT_MIN_ABSORPTION_TARGET_AREA_RATIO,
       gapToleranceMeters,
       minimumGapWidthMeters: toleranceMeters,
       maxInferredGapWidthMeters: DEFAULT_MAX_INFERRED_GAP_WIDTH_M,
+      maxGapWidthToSharedBoundaryRatio:
+        DEFAULT_MAX_GAP_WIDTH_TO_SHARED_BOUNDARY_RATIO,
+      minGapSharedBoundaryRatio: DEFAULT_MIN_SHARED_BOUNDARY_RATIO,
       lineTopologyToleranceMeters: toleranceMeters,
       maxInferredLineErrorMeters: DEFAULT_MAX_INFERRED_LINE_ERROR_M,
       spikeBaseToleranceMeters: toleranceMeters,
+      strongRingSpikeMinLegToBaseRatio:
+        STRONG_RING_SPIKE_MIN_LEG_TO_BASE_RATIO,
       maxCoordinateDecimalPlaces,
     });
   }
@@ -343,7 +371,7 @@ export const analyzeGeoJson = (
   ]);
   const polygonInput = createQuarantinedView(geojson, polygonUnsafe);
   const selfIntersectionReport =
-    processSelfIntersections(polygonInput).report;
+    processSelfIntersections(polygonInput, false).report;
   checks.selfIntersections = selfIntersectionReport;
   checks.ringOrientation =
     processRingOrientation(polygonInput, false).report;
@@ -388,12 +416,23 @@ export const analyzeGeoJson = (
     tinyAreaThresholdM2,
     sliverAreaThresholdM2: tinyAreaThresholdM2,
     sliverMinCompactness: DEFAULT_MIN_SLIVER_COMPACTNESS,
+    sliverMinDominantSharedBoundaryRatio:
+      DEFAULT_MIN_DOMINANT_SHARED_BOUNDARY_RATIO,
+    sliverMinSharedBoundaryDominanceRatio:
+      DEFAULT_MIN_SHARED_BOUNDARY_DOMINANCE_RATIO,
+    sliverMinAbsorptionTargetAreaRatio:
+      DEFAULT_MIN_ABSORPTION_TARGET_AREA_RATIO,
     gapToleranceMeters,
     minimumGapWidthMeters: toleranceMeters,
     maxInferredGapWidthMeters: DEFAULT_MAX_INFERRED_GAP_WIDTH_M,
+    maxGapWidthToSharedBoundaryRatio:
+      DEFAULT_MAX_GAP_WIDTH_TO_SHARED_BOUNDARY_RATIO,
+    minGapSharedBoundaryRatio: DEFAULT_MIN_SHARED_BOUNDARY_RATIO,
     lineTopologyToleranceMeters: toleranceMeters,
     maxInferredLineErrorMeters: DEFAULT_MAX_INFERRED_LINE_ERROR_M,
     spikeBaseToleranceMeters: toleranceMeters,
+    strongRingSpikeMinLegToBaseRatio:
+      STRONG_RING_SPIKE_MIN_LEG_TO_BASE_RATIO,
     maxCoordinateDecimalPlaces,
   });
 };

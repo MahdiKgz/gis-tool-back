@@ -206,7 +206,7 @@ test("reports self-intersection before its secondary area consequences", () => {
     type: "Point",
     coordinates: [51.465, 35.705],
   });
-  assert.equal(issue.disposition, "ManualReview");
+  assert.equal(issue.disposition, "AutoRepairAvailable");
   assert.equal(report.summary.checksRun, 18);
 });
 
@@ -276,6 +276,18 @@ test("reports gaps, slivers, undershoots, and overshoots in one dry run", async 
   assert.equal(report.appliedOptions.sliverAreaThresholdM2, 0.09);
   assert.equal(report.appliedOptions.gapToleranceMeters, 0.09);
   assert.equal(report.appliedOptions.lineTopologyToleranceMeters, 0.03);
+  assert.equal(report.appliedOptions.maxGapWidthToSharedBoundaryRatio, 0.1);
+  assert.equal(report.appliedOptions.minGapSharedBoundaryRatio, 0.5);
+  assert.equal(
+    report.appliedOptions.sliverMinDominantSharedBoundaryRatio,
+    0.4,
+  );
+  assert.equal(
+    report.appliedOptions.sliverMinSharedBoundaryDominanceRatio,
+    2,
+  );
+  assert.equal(report.appliedOptions.sliverMinAbsorptionTargetAreaRatio, 10);
+  assert.equal(report.appliedOptions.strongRingSpikeMinLegToBaseRatio, 10);
   assert.deepEqual(fs.readFileSync(fixturePath), before);
 });
 
@@ -305,6 +317,55 @@ test("applies a 50 mm issue threshold to the cadastral preview fixture", async (
       .every((issue) => issue.disposition === "AutoRepairAvailable"),
   );
   assert.deepEqual(fs.readFileSync(fixturePath), before);
+});
+
+test("does not advertise a gap repair that its topology guard would roll back", () => {
+  const polygon = (id: string, coordinates: number[][]) => ({
+    type: "Feature",
+    id,
+    properties: {},
+    geometry: { type: "Polygon", coordinates: [coordinates] },
+  });
+  const input = {
+    type: "FeatureCollection",
+    features: [
+      polygon("west", [
+        [51.38, 35.68],
+        [51.382, 35.68],
+        [51.382, 35.682],
+        [51.38, 35.682],
+        [51.38, 35.68],
+      ]),
+      polygon("east", [
+        [51.3822, 35.68],
+        [51.3842, 35.68],
+        [51.3842, 35.682],
+        [51.3822, 35.682],
+        [51.3822, 35.68],
+      ]),
+      polygon("blocking-road", [
+        [51.38199, 35.6805],
+        [51.38221, 35.6805],
+        [51.38221, 35.6815],
+        [51.38199, 35.6815],
+        [51.38199, 35.6805],
+      ]),
+    ],
+  };
+  const before = structuredClone(input);
+
+  const report = analyzeGeoJson(input, { toleranceMillimeters: 25 });
+  const issue = report.issues.find(
+    (candidate) =>
+      candidate.code === "POLYGON_GAP" &&
+      candidate.featureId === "west" &&
+      candidate.relatedFeatureId === "east",
+  );
+
+  assert.ok(issue);
+  assert.equal(issue.disposition, "ManualReview");
+  assert.equal(issue.details.repairFailureReason, "WouldCreateOverlap");
+  assert.deepEqual(input, before);
 });
 
 test("detects every declared cadastral topology scenario at 25 mm", async () => {
@@ -337,17 +398,18 @@ test("detects every declared cadastral topology scenario at 25 mm", async () => 
     assert.ok(matching.length > 0, `${code} should affect feature ${featureId}`);
   }
 
-  const inferredCodes = [
+  const expandedAutoRepairCodes = [
     "POLYGON_GAP",
     "SLIVER_POLYGON",
+    "SELF_INTERSECTION",
     "SPIKE",
     "LINE_UNDERSHOOT",
     "LINE_OVERSHOOT",
   ];
-  for (const code of inferredCodes) {
+  for (const code of expandedAutoRepairCodes) {
     const issue = report.issues.find((candidate) => candidate.code === code);
     assert.ok(issue);
-    assert.equal(issue.disposition, "ManualReview");
+    assert.equal(issue.disposition, "AutoRepairAvailable");
   }
   assert.equal(report.checks.overlaps?.valid, false);
   assert.equal(report.summary.checksRun, 18);

@@ -222,6 +222,7 @@ const normalizeOptions = (options: GapOptions): NormalizedGapOptions => {
   if (
     !Number.isFinite(normalized.maxGapWidthToSharedBoundaryRatio) ||
     normalized.maxGapWidthToSharedBoundaryRatio <= 0 ||
+    normalized.maxGapWidthToSharedBoundaryRatio > 1 ||
     !Number.isFinite(normalized.minSharedBoundaryRatio) ||
     normalized.minSharedBoundaryRatio <= 0 ||
     normalized.minSharedBoundaryRatio > 1
@@ -301,7 +302,7 @@ const polygonsIntersect = (
 const findingFromCandidate = (
   candidate: PairCandidate,
   boundaries: PolygonBoundary[],
-  toleranceMeters: number,
+  options: NormalizedGapOptions,
 ): GapFinding => {
   const first = boundaries[candidate.first.componentIndex]!;
   const second = boundaries[candidate.second.componentIndex]!;
@@ -319,13 +320,27 @@ const findingFromCandidate = (
     ),
     distanceMetersBetweenPositions(candidate.first.end, candidate.second.start),
   );
+  const endpointDistanceMeters = Math.min(
+    directEndpointDistance,
+    reversedEndpointDistance,
+  );
   const hasCompleteExteriorEdgeMatch =
     candidate.first.ringIndex === 0 &&
     candidate.second.ringIndex === 0 &&
     candidate.sharedBoundaryRatio !== null &&
-    candidate.sharedBoundaryRatio >= 0.98 &&
-    Math.min(directEndpointDistance, reversedEndpointDistance) <=
-      toleranceMeters;
+    candidate.sharedBoundaryRatio >= 0.98;
+  const withinConfiguredTolerance =
+    candidate.distanceMeters <= options.gapToleranceMeters &&
+    endpointDistanceMeters <= options.gapToleranceMeters;
+  const withinInferredRepairBounds =
+    candidate.sharedBoundaryLengthMeters !== null &&
+    candidate.gapWidthToSharedBoundaryRatio !== null &&
+    candidate.distanceMeters <= options.maxInferredGapWidthMeters &&
+    endpointDistanceMeters <= options.maxInferredGapWidthMeters &&
+    candidate.gapWidthToSharedBoundaryRatio <=
+      options.maxGapWidthToSharedBoundaryRatio &&
+    endpointDistanceMeters / candidate.sharedBoundaryLengthMeters <=
+      options.maxGapWidthToSharedBoundaryRatio;
   return {
     code: "POLYGON_GAP",
     featureIndex: first.featureIndex,
@@ -351,16 +366,68 @@ const findingFromCandidate = (
     nearestPosition: candidate.firstPosition,
     relatedNearestPosition: candidate.secondPosition,
     distanceMeters: candidate.distanceMeters,
-    toleranceMeters,
+    toleranceMeters: options.gapToleranceMeters,
     detectionMode: candidate.detectionMode,
     sharedBoundaryLengthMeters: candidate.sharedBoundaryLengthMeters,
     sharedBoundaryRatio: candidate.sharedBoundaryRatio,
     gapWidthToSharedBoundaryRatio:
       candidate.gapWidthToSharedBoundaryRatio,
     repairable:
-      candidate.distanceMeters <= toleranceMeters &&
-      hasCompleteExteriorEdgeMatch,
+      hasCompleteExteriorEdgeMatch &&
+      (withinConfiguredTolerance || withinInferredRepairBounds),
   };
+};
+
+const findingSegmentKey = (
+  featureIndex: number,
+  geometryCollectionPath: number[],
+  coordinatePath: number[],
+): string =>
+  `${featureIndex}|${geometryCollectionPath.join(".")}|${coordinatePath.join(".")}`;
+
+/**
+ * A boundary edge must have one unambiguous repair partner. Without this
+ * guard, coincident duplicates or a dense parcel cluster can pull one edge
+ * toward two different targets in sequence and leave the final topology worse
+ * than the input.
+ */
+const rejectCompetingRepairPartners = (findings: GapFinding[]): GapFinding[] => {
+  const candidateCounts = new Map<string, number>();
+  for (const finding of findings) {
+    const keys = [
+      findingSegmentKey(
+        finding.featureIndex,
+        finding.geometryCollectionPath,
+        finding.coordinatePath,
+      ),
+      findingSegmentKey(
+        finding.relatedFeatureIndex,
+        finding.relatedGeometryCollectionPath,
+        finding.relatedCoordinatePath,
+      ),
+    ];
+    for (const key of keys) {
+      candidateCounts.set(key, (candidateCounts.get(key) ?? 0) + 1);
+    }
+  }
+
+  return findings.map((finding) => {
+    if (!finding.repairable) return finding;
+    const firstKey = findingSegmentKey(
+      finding.featureIndex,
+      finding.geometryCollectionPath,
+      finding.coordinatePath,
+    );
+    const secondKey = findingSegmentKey(
+      finding.relatedFeatureIndex,
+      finding.relatedGeometryCollectionPath,
+      finding.relatedCoordinatePath,
+    );
+    return candidateCounts.get(firstKey) === 1 &&
+        candidateCounts.get(secondKey) === 1
+      ? finding
+      : { ...finding, repairable: false };
+  });
 };
 
 export const detectGaps = (
@@ -485,7 +552,7 @@ export const detectGaps = (
       findingFromCandidate(
         candidate,
         boundaries,
-        normalized.gapToleranceMeters,
+        normalized,
       ),
     );
   }
@@ -493,6 +560,6 @@ export const detectGaps = (
   return {
     polygonComponentsScanned: boundaries.length,
     candidatePairsChecked,
-    findings,
+    findings: rejectCompetingRepairPartners(findings),
   };
 };

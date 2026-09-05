@@ -146,6 +146,25 @@
 -   [x] Keep high-precision safe features eligible for topology healing
 -   [x] Add a 50 mm cadastral regression fixture
 
+## Expanded Evidence-Based Auto Repair
+
+-   [x] Repair isolated top-level Polygon and MultiPolygon crossings before
+    ring-orientation quarantine
+-   [x] Repair strong outward ring spikes beyond the coordinate tolerance
+-   [x] Absorb uniquely edge-adjacent compactness slivers into a dominant
+    neighbor
+-   [x] Repair unique full-edge inferred gaps with absolute and relative width
+    gates
+-   [x] Repair unique directional polygon-boundary undershoots and overshoots
+-   [x] Reject competing targets, intervening lines, invalid output, and new
+    third-party overlaps transactionally
+-   [x] Run the same transactional feasibility checks during dry-run so failed
+    candidates are shown as manual review before healing starts
+-   [x] Run line endpoint healing against final polygon boundaries in the
+    worker
+-   [x] Add combined cadastral dry-run and actual-repair regressions and verify
+    the real worker path
+
 # Phase 2 --- Advanced Topology
 
 -   [x] Shared Boundary Validation

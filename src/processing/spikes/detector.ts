@@ -6,6 +6,7 @@ import {
   visitCoordinateSequences,
 } from "../shared/coordinate-sequences";
 import { positionsEqual, Position } from "../shared/coordinates";
+import { calculateRingOrientation } from "../ring-orientation";
 import {
   FeatureCollectionLike,
   SpikeDetectionResult,
@@ -16,6 +17,7 @@ import {
 export const DEFAULT_SPIKE_BASE_TOLERANCE_M = 0.025;
 export const DEFAULT_MAX_TIP_ANGLE_DEGREES = 10;
 export const DEFAULT_MIN_LEG_TO_BASE_RATIO = 3;
+export const STRONG_RING_SPIKE_MIN_LEG_TO_BASE_RATIO = 10;
 
 const distanceMeters = (first: Position, second: Position): number =>
   distance(point(first), point(second), { units: "meters" });
@@ -72,6 +74,26 @@ const neighboringPositions = (
     tip: coordinates[tipIndex]!,
     next: coordinates[(tipIndex + 1) % coordinates.length]!,
   };
+};
+
+const isExteriorRing = (sequence: CoordinateSequence): boolean =>
+  sequence.kind === "ring" && sequence.coordinateRootPath.at(-1) === 0;
+
+const isOutwardRingSpike = (
+  sequence: CoordinateSequence,
+  previous: Position,
+  tip: Position,
+  next: Position,
+): boolean | null => {
+  if (!isExteriorRing(sequence)) return null;
+  const orientation = calculateRingOrientation(sequence.coordinates);
+  if (orientation === "indeterminate") return null;
+  const incomingX = tip[0]! - previous[0]!;
+  const incomingY = tip[1]! - previous[1]!;
+  const outgoingX = next[0]! - tip[0]!;
+  const outgoingY = next[1]! - tip[1]!;
+  const turn = incomingX * outgoingY - incomingY * outgoingX;
+  return orientation === "counterclockwise" ? turn > 0 : turn < 0;
 };
 
 const validateOptions = (
@@ -148,14 +170,33 @@ export const detectSpikes = (
           afterLegMeters,
           baseWidthMeters,
         );
+        const legToBaseRatio =
+          baseWidthMeters === 0
+            ? Number.POSITIVE_INFINITY
+            : Math.min(beforeLegMeters, afterLegMeters) / baseWidthMeters;
         if (
           !Number.isFinite(tipAngleDegrees) ||
           tipAngleDegrees > normalized.maxTipAngleDegrees ||
-          Math.min(beforeLegMeters, afterLegMeters) <
-            baseWidthMeters * normalized.minLegToBaseRatio
+          legToBaseRatio < normalized.minLegToBaseRatio
         ) {
           continue;
         }
+
+        const withinTolerance =
+          baseWidthMeters <= normalized.baseToleranceMeters;
+        // A very narrow ring backtrack is strong shape evidence even when its
+        // shoulders are farther apart than the coordinate-movement tolerance.
+        // Removing the tip does not move either shoulder, and repair still has
+        // to pass the transactional ring-validity boundary in repair.ts.
+        const outwardRingSpike = isOutwardRingSpike(
+          sequence,
+          positions.previous,
+          positions.tip,
+          positions.next,
+        );
+        const strongRingBacktrack =
+          outwardRingSpike === true &&
+          legToBaseRatio >= STRONG_RING_SPIKE_MIN_LEG_TO_BASE_RATIO;
 
         findings.push({
           code: "SPIKE",
@@ -173,8 +214,14 @@ export const detectSpikes = (
           beforeLegMeters,
           afterLegMeters,
           tipAngleDegrees,
-          repairable:
-            baseWidthMeters <= normalized.baseToleranceMeters,
+          legToBaseRatio,
+          outwardRingSpike,
+          repairEvidence: withinTolerance
+            ? "WithinTolerance"
+            : strongRingBacktrack
+              ? "StrongRingBacktrack"
+              : "None",
+          repairable: withinTolerance || strongRingBacktrack,
         });
       }
     });

@@ -14,6 +14,7 @@ const analysis = {
     gapsClosed: 2,
     overlapsHealed: 1,
     spikesRemoved: 3,
+    selfIntersectionsRepaired: 1,
     originalSizeInBytes: 100,
     optimizedSizeInBytes: 80,
   },
@@ -23,7 +24,7 @@ test("builds a public result without exposing the server file path", () => {
   const result = buildPublicHealResult(analysis);
 
   assert.ok(result);
-  assert.equal(result.repairsApplied, 6);
+  assert.equal(result.repairsApplied, 7);
   assert.deepEqual(result.output, {
     fileName: "cleaned-parcels.geojson",
     previewPath: `/api/heal/${analysis.id}/output`,

@@ -3,6 +3,12 @@ import { FeatureCollectionLike } from "../shared/geojson";
 
 export type SelfIntersectionKind = "Crossing" | "Touching" | "Overlapping";
 
+export type SelfIntersectionRepairFailureReason =
+  | "StaleTarget"
+  | "UnsupportedGeometry"
+  | "PolygonizationFailed"
+  | "InvalidRepairOutput";
+
 export type SelfIntersectionGeometry =
   | {
       type: "Point";
@@ -26,7 +32,8 @@ export interface SelfIntersectionFinding {
   intersectionGeometry: SelfIntersectionGeometry;
   firstSegment: [Position, Position];
   secondSegment: [Position, Position];
-  repairable: false;
+  repairStrategy: "UnkinkToMultiPolygon" | null;
+  repairable: boolean;
 }
 
 export interface SelfIntersectionDetectionResult {
@@ -43,12 +50,14 @@ export interface SelfIntersectionValidationReport {
   crossingsFound: number;
   touchesFound: number;
   overlapsFound: number;
+  selfIntersectionsRepaired: number;
   unresolvedIssues: number;
   unresolvedFeatureIndexes: number[];
   issues: Array<
     SelfIntersectionFinding & {
-      status: "Unresolved";
-      recommendedAction: "ManualReview";
+      status: "Repaired" | "Unresolved";
+      recommendedAction: "None" | "AutoRepair" | "ManualReview";
+      repairFailureReason: SelfIntersectionRepairFailureReason | null;
     }
   >;
 }

@@ -8,9 +8,13 @@ import {
   SliverDetectionResult,
   SliverOptions,
 } from "./types";
+import { findSliverAdjacency, sliverComponentKey } from "./adjacency";
 
 export const MIN_SLIVER_MULTIPLIER = 10;
 export const DEFAULT_MIN_SLIVER_COMPACTNESS = 0.1;
+export const DEFAULT_MIN_DOMINANT_SHARED_BOUNDARY_RATIO = 0.4;
+export const DEFAULT_MIN_SHARED_BOUNDARY_DOMINANCE_RATIO = 2;
+export const DEFAULT_MIN_ABSORPTION_TARGET_AREA_RATIO = 10;
 
 export const computeSliverAreaThresholdM2 = (
   toleranceMeters: number,
@@ -30,6 +34,15 @@ export const detectSlivers = (
   }
   const minCompactness =
     options.minCompactness ?? DEFAULT_MIN_SLIVER_COMPACTNESS;
+  const minDominantSharedBoundaryRatio =
+    options.minDominantSharedBoundaryRatio ??
+    DEFAULT_MIN_DOMINANT_SHARED_BOUNDARY_RATIO;
+  const minSharedBoundaryDominanceRatio =
+    options.minSharedBoundaryDominanceRatio ??
+    DEFAULT_MIN_SHARED_BOUNDARY_DOMINANCE_RATIO;
+  const minAbsorptionTargetAreaRatio =
+    options.minAbsorptionTargetAreaRatio ??
+    DEFAULT_MIN_ABSORPTION_TARGET_AREA_RATIO;
   if (
     !Number.isFinite(minCompactness) ||
     minCompactness < 0 ||
@@ -37,6 +50,19 @@ export const detectSlivers = (
   ) {
     throw new RangeError(
       "minCompactness must be finite, non-negative, and below 1",
+    );
+  }
+  if (
+    !Number.isFinite(minDominantSharedBoundaryRatio) ||
+    minDominantSharedBoundaryRatio <= 0 ||
+    minDominantSharedBoundaryRatio > 1 ||
+    !Number.isFinite(minSharedBoundaryDominanceRatio) ||
+    minSharedBoundaryDominanceRatio <= 1 ||
+    !Number.isFinite(minAbsorptionTargetAreaRatio) ||
+    minAbsorptionTargetAreaRatio <= 1
+  ) {
+    throw new RangeError(
+      "sliver adjacency thresholds must be finite positive ratios",
     );
   }
   if (geojson.type !== "FeatureCollection" || !Array.isArray(geojson.features)) {
@@ -97,12 +123,13 @@ export const detectSlivers = (
           detectionReasons,
           thresholdM2: options.sliverAreaThresholdM2,
           minCompactness,
-          // Removing a component is deterministic only when it is below the
-          // configured minimum mapping area. Compactness-only findings can be
-          // legitimate narrow parcels and remain report-only.
-          repairable:
-            component.geometryCollectionPath.length === 0 &&
-            detectionReasons.includes("Area"),
+          absorptionTargetFeatureIndex: null,
+          absorptionTargetFeatureId: null,
+          dominantSharedBoundaryLengthMeters: 0,
+          dominantSharedBoundaryRatio: 0,
+          sharedBoundaryDominanceRatio: null,
+          absorptionTargetAreaRatio: null,
+          repairable: false,
         });
       } catch {
         // Earlier validation stages own malformed polygon reporting.
@@ -111,5 +138,46 @@ export const detectSlivers = (
     if (featureHasPolygon) polygonFeaturesScanned++;
   });
 
-  return { polygonFeaturesScanned, findings };
+  const adjacency = findSliverAdjacency(geojson, findings);
+  const sliverFeatureIndexes = new Set(
+    findings.map((finding) => finding.featureIndex),
+  );
+  const classifiedFindings = findings.map((finding) => {
+    const evidence = adjacency.get(
+      sliverComponentKey(
+        finding.featureIndex,
+        finding.geometryCollectionPath,
+        finding.polygonPath,
+      ),
+    );
+    const targetIsStable =
+      evidence !== undefined &&
+      !sliverFeatureIndexes.has(evidence.targetFeatureIndex);
+    const strongUniqueAdjacency =
+      targetIsStable &&
+      evidence.sharedBoundaryRatio >= minDominantSharedBoundaryRatio &&
+      (evidence.dominanceRatio === null ||
+        evidence.dominanceRatio >= minSharedBoundaryDominanceRatio) &&
+      evidence.targetAreaRatio >= minAbsorptionTargetAreaRatio;
+    const canEditComponent = finding.geometryCollectionPath.length === 0;
+    return {
+      ...finding,
+      absorptionTargetFeatureIndex: strongUniqueAdjacency
+        ? evidence.targetFeatureIndex
+        : null,
+      absorptionTargetFeatureId: strongUniqueAdjacency
+        ? evidence.targetFeatureId
+        : null,
+      dominantSharedBoundaryLengthMeters:
+        evidence?.sharedBoundaryLengthMeters ?? 0,
+      dominantSharedBoundaryRatio: evidence?.sharedBoundaryRatio ?? 0,
+      sharedBoundaryDominanceRatio: evidence?.dominanceRatio ?? null,
+      absorptionTargetAreaRatio: evidence?.targetAreaRatio ?? null,
+      repairable:
+        canEditComponent &&
+        (finding.detectionReasons.includes("Area") || strongUniqueAdjacency),
+    };
+  });
+
+  return { polygonFeaturesScanned, findings: classifiedFindings };
 };

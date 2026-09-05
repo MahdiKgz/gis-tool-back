@@ -78,6 +78,77 @@ test("detects a long narrow polygon by compactness independent of area", () => {
   assert.equal(finding.repairable, false);
 });
 
+test("offers a compactness-only sliver with one dominant edge neighbor for absorption", () => {
+  const result = detectSlivers(
+    {
+      type: "FeatureCollection",
+      features: [
+        polygonFeature("target", [
+          [51.3832, 35.68],
+          [51.3842, 35.68],
+          [51.3842, 35.682],
+          [51.3832, 35.682],
+          [51.3832, 35.68],
+        ]),
+        polygonFeature("sliver", [
+          [51.3842, 35.68],
+          [51.384201, 35.68],
+          [51.384201, 35.682],
+          [51.3842, 35.682],
+          [51.3842, 35.68],
+        ]),
+      ],
+    },
+    { sliverAreaThresholdM2: 0.01 },
+  );
+
+  assert.equal(result.findings.length, 1);
+  const finding = result.findings[0]!;
+  assert.deepEqual(finding.detectionReasons, ["Compactness"]);
+  assert.equal(finding.absorptionTargetFeatureIndex, 0);
+  assert.ok(finding.dominantSharedBoundaryRatio > 0.49);
+  assert.equal(finding.repairable, true);
+});
+
+test("keeps a two-sided compactness sliver manual when neighbor ownership is tied", () => {
+  const result = detectSlivers(
+    {
+      type: "FeatureCollection",
+      features: [
+        polygonFeature("west", [
+          [51.3832, 35.68],
+          [51.3842, 35.68],
+          [51.3842, 35.682],
+          [51.3832, 35.682],
+          [51.3832, 35.68],
+        ]),
+        polygonFeature("sliver", [
+          [51.3842, 35.68],
+          [51.384201, 35.68],
+          [51.384201, 35.682],
+          [51.3842, 35.682],
+          [51.3842, 35.68],
+        ]),
+        polygonFeature("east", [
+          [51.384201, 35.68],
+          [51.385201, 35.68],
+          [51.385201, 35.682],
+          [51.384201, 35.682],
+          [51.384201, 35.68],
+        ]),
+      ],
+    },
+    { sliverAreaThresholdM2: 0.01 },
+  );
+
+  const finding = result.findings.find(
+    (candidate) => candidate.featureId === "sliver",
+  )!;
+  assert.equal(finding.absorptionTargetFeatureIndex, null);
+  assert.ok(finding.sharedBoundaryDominanceRatio! < 1.01);
+  assert.equal(finding.repairable, false);
+});
+
 test("rejects invalid sliver thresholds", () => {
   assert.throws(
     () =>

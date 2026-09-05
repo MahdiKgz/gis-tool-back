@@ -4,9 +4,11 @@
 
 The dry-run pipeline reports self-intersections in closed, structurally valid
 Polygon and MultiPolygon exterior rings, including polygons nested in
-GeometryCollection geometries. Detection is report-only and never changes
-input coordinates. Self-intersecting interior rings remain owned by the more
-specific invalid-hole validator, avoiding duplicate findings for one defect.
+GeometryCollection geometries. Dry-run detection never changes input
+coordinates, but it now advertises automatic repair for a narrowly defined
+isolated-crossing strategy. Self-intersecting interior rings remain owned by
+the more specific invalid-hole validator, avoiding duplicate findings for one
+defect.
 
 The check runs after structural ring validation and before orientation, hole,
 spike, zero-area, and tiny-polygon checks. This ordering makes
@@ -35,27 +37,41 @@ source segments.
 
 ## Repair safety
 
-Every self-intersection issue has `repairable: false` and recommends manual
-review. The existing worker healing behavior is unchanged. Automatically
-unkinking a polygon can split it or change its semantics, so dry-run does not
-advertise an automatic repair.
+An issue is `AutoRepairAvailable` only when all of these conditions hold:
+
+- the feature has exactly one self-intersection and it is a proper `Crossing`;
+- the affected geometry is a top-level Polygon or MultiPolygon component;
+- the affected component has one exterior ring, no holes, no repeated
+  non-closure vertices, and only two-dimensional positions; and
+- polygonization produces exactly two simple faces while preserving every
+  source vertex.
+
+Healing replaces the affected Polygon (or MultiPolygon component) with those
+two faces in one MultiPolygon feature. Feature id and properties are retained.
+The complete result must pass self-intersection and multipart-integrity checks;
+otherwise the original feature is returned unchanged with a repair failure
+reason. Touches, collinear overlaps, multiple crossings, holes, higher
+dimensions, and GeometryCollection ownership remain manual review.
+
+Dry-run performs the same polygonization and validation against an immutable
+candidate. A crossing is advertised as `AutoRepairAvailable` only when that
+feasibility attempt succeeds; no repaired coordinates are returned or stored.
+
+This repair runs before ring-orientation validation in the worker. Bow-ties
+have indeterminate signed area, so the previous order quarantined them before
+the old generic unkink step could run.
 
 ## Controlled fixture baseline
 
-Before integration, `snapgis_topology_test_suite.geojson` at 30 mm produced:
+The current `snapgis_topology_test_suite.geojson` dry run at 30 mm produces 18
+checks, 41 detailed issues, and 14 issue groups. It reports exactly one
+`SELF_INTERSECTION`, for Feature 8, at `[51.465, 35.705]` between ring segments
+0 and 2. That issue is `AutoRepairAvailable`; the input's zero-area and
+indeterminate-orientation consequences remain visible as separate manual
+findings because dry-run does not mutate or stage intermediate repairs.
 
-- 12 checks;
-- 29 issues;
-- no self-intersection finding;
-- Feature 8 classified only as zero-area with indeterminate orientation.
-
-After integration it produces:
-
-- 13 checks;
-- 30 issues;
-- exactly one `SELF_INTERSECTION`, for Feature 8;
-- intersection point `[51.465, 35.705]` between ring segments 0 and 2;
-- the prior zero-area and orientation findings preserved as secondary issues.
+During healing, the isolated crossing is repaired before those secondary
+checks evaluate the working geometry.
 
 Feature 7's consecutive duplicate vertex remains only a duplicate-vertex
 finding and is not misclassified as a self-intersection.

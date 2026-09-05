@@ -45,6 +45,12 @@ export interface OvershootFinding extends LineEndpointFinding {
 
 export type LineTopologyFinding = UndershootFinding | OvershootFinding;
 
+export type LineTopologyRepairFailureReason =
+  | "StaleTarget"
+  | "TargetChangedDuringRepair"
+  | "WouldCollapseLine"
+  | "WouldCreateSelfIntersection";
+
 export interface LineTopologyDetectionResult {
   linePartsScanned: number;
   undershoots: UndershootFinding[];
@@ -54,6 +60,7 @@ export interface LineTopologyDetectionResult {
 export interface LineTopologyIssueBase {
   status: "Repaired" | "Unresolved";
   recommendedAction: "None" | "AutoRepair" | "ManualReview";
+  repairFailureReason?: LineTopologyRepairFailureReason;
 }
 
 export interface UndershootValidationReport {

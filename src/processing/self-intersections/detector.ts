@@ -200,6 +200,61 @@ const segmentCoordinates = (
   segment: IndexedSegment,
 ): [Position, Position] => [[...segment.start], [...segment.end]];
 
+const isUnambiguousTopLevelPolygon = (
+  geojson: FeatureCollectionLike,
+  finding: SelfIntersectionFinding,
+  findingsForFeature: SelfIntersectionFinding[],
+): boolean => {
+  if (
+    finding.intersectionKind !== "Crossing" ||
+    finding.geometryCollectionPath.length > 0 ||
+    findingsForFeature.length !== 1
+  ) {
+    return false;
+  }
+
+  const geometry = geojson.features?.[finding.featureIndex]?.geometry;
+  if (!geometry || !Array.isArray(geometry.coordinates)) return false;
+
+  let component: unknown;
+  if (geometry.type === "Polygon") {
+    component = geometry.coordinates;
+  } else if (geometry.type === "MultiPolygon") {
+    const componentIndex = finding.polygonPath[0];
+    if (componentIndex === undefined) return false;
+    component = geometry.coordinates[componentIndex];
+  } else {
+    return false;
+  }
+  // The affected component must not have holes. Selecting how polygonized
+  // faces own holes is ambiguous; other untouched MultiPolygon components
+  // are safe because final multipart validation checks the complete result.
+  if (!Array.isArray(component) || component.length !== 1) return false;
+  const ring = component[0];
+  if (
+    !Array.isArray(ring) ||
+    ring.length < 4 ||
+    !ring.every(
+      (position) => isFinitePosition(position) && position.length === 2,
+    )
+  ) {
+    return false;
+  }
+
+  // Turf's polygonizer rejects repeated non-closure vertices. More
+  // importantly, such vertices describe a touch/retrace rather than the one
+  // isolated proper crossing this strategy is designed for.
+  const uniqueVertices = new Set(
+    ring.slice(0, -1).map((position) =>
+      JSON.stringify([
+        (position as Position)[0],
+        (position as Position)[1],
+      ]),
+    ),
+  );
+  return uniqueVertices.size === ring.length - 1;
+};
+
 export const detectSelfIntersections = (
   geojson: FeatureCollectionLike,
 ): SelfIntersectionDetectionResult => {
@@ -265,12 +320,32 @@ export const detectSelfIntersections = (
             intersectionGeometry: intersection.geometry,
             firstSegment: segmentCoordinates(first),
             secondSegment: segmentCoordinates(second),
+            repairStrategy: null,
             repairable: false,
           });
         }
       }
     });
   });
+
+  const findingsByFeature = new Map<number, SelfIntersectionFinding[]>();
+  for (const finding of findings) {
+    const featureFindings = findingsByFeature.get(finding.featureIndex) ?? [];
+    featureFindings.push(finding);
+    findingsByFeature.set(finding.featureIndex, featureFindings);
+  }
+  for (const finding of findings) {
+    if (
+      isUnambiguousTopLevelPolygon(
+        geojson,
+        finding,
+        findingsByFeature.get(finding.featureIndex) ?? [],
+      )
+    ) {
+      finding.repairStrategy = "UnkinkToMultiPolygon";
+      finding.repairable = true;
+    }
+  }
 
   return { ringsScanned, segmentsScanned, findings };
 };

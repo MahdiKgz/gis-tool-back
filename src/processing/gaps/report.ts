@@ -1,4 +1,8 @@
-import { GapDetectionResult, GapValidationReport } from "./types";
+import {
+  GapDetectionResult,
+  GapRepairFailureReason,
+  GapValidationReport,
+} from "./types";
 import { gapFindingKey } from "./repair";
 
 export const buildGapReport = (
@@ -6,17 +10,21 @@ export const buildGapReport = (
   appliedGapToleranceMeters: number,
   appliedMinimumGapWidthMeters = 0,
   repairedKeys: Set<string> = new Set(),
+  failedReasons: ReadonlyMap<string, GapRepairFailureReason> = new Map(),
 ): GapValidationReport => {
   const issues = detection.findings.map((finding) => {
-    const repaired = repairedKeys.has(gapFindingKey(finding));
+    const key = gapFindingKey(finding);
+    const repaired = repairedKeys.has(key);
+    const repairFailureReason = failedReasons.get(key) ?? null;
     return {
       ...finding,
       status: repaired ? ("Repaired" as const) : ("Unresolved" as const),
       recommendedAction: repaired
         ? ("None" as const)
-        : finding.repairable
+        : finding.repairable && repairFailureReason === null
           ? ("AutoRepair" as const)
           : ("ManualReview" as const),
+      repairFailureReason,
     };
   });
   const unresolved = issues.filter((issue) => issue.status === "Unresolved");

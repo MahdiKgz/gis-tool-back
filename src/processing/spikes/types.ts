@@ -26,6 +26,9 @@ export interface SpikeFinding {
   beforeLegMeters: number;
   afterLegMeters: number;
   tipAngleDegrees: number;
+  legToBaseRatio: number;
+  outwardRingSpike: boolean | null;
+  repairEvidence: "WithinTolerance" | "StrongRingBacktrack" | "None";
   repairable: boolean;
 }
 
@@ -34,9 +37,12 @@ export interface SpikeDetectionResult {
   findings: SpikeFinding[];
 }
 
+export type SpikeRepairFailureReason = "StaleTarget" | "InvalidRepairOutput";
+
 export interface SpikeIssue extends SpikeFinding {
   status: "Removed" | "Unresolved";
-  recommendedAction: "None" | "ManualReview";
+  recommendedAction: "None" | "AutoRepair" | "ManualReview";
+  repairFailureReason: SpikeRepairFailureReason | null;
 }
 
 export interface SpikeValidationReport {

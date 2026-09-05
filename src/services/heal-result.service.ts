@@ -9,6 +9,7 @@ const REPAIR_COUNT_KEYS = [
   "ringsAutoClosed",
   "holesRemoved",
   "spikesRemoved",
+  "selfIntersectionsRepaired",
   "undershootsRepaired",
   "overshootsRepaired",
   "gapsClosed",

@@ -1,13 +1,21 @@
 import kinks from "@turf/kinks";
 import { polygon } from "@turf/helpers";
+import { detectInvalidHoles } from "../invalid-holes";
+import { detectMultipartIntegrity } from "../multipart-integrity";
 import { calculateRingOrientation } from "../ring-orientation";
+import { detectSelfIntersections } from "../self-intersections/detector";
 import { positionsEqual, Position } from "../shared/coordinates";
 import {
   CoordinatePathUpdate,
   updateGeometryAtCoordinatePaths,
 } from "../shared/geometry-path";
 import { positionKey } from "../shared/coordinates";
-import { FeatureCollectionLike, SpikeFinding } from "./types";
+import { GeoJsonFeatureLike } from "../shared/geojson";
+import {
+  FeatureCollectionLike,
+  SpikeFinding,
+  SpikeRepairFailureReason,
+} from "./types";
 
 interface RepairGroup {
   geometryCollectionPath: number[];
@@ -18,6 +26,7 @@ interface RepairGroup {
 export interface SpikeRepairResult<T = FeatureCollectionLike> {
   geojson: T;
   removedKeys: Set<string>;
+  failedReasons: Map<string, SpikeRepairFailureReason>;
 }
 
 export const spikePathKey = (
@@ -90,12 +99,31 @@ const validRing = (
   return candidate;
 };
 
+const featureTopologyIsValid = (
+  feature: GeoJsonFeatureLike,
+): boolean => {
+  const collection: FeatureCollectionLike = {
+    type: "FeatureCollection",
+    features: [feature],
+  };
+  return (
+    detectSelfIntersections(collection).findings.length === 0 &&
+    detectInvalidHoles(collection, { tinyHoleAreaM2: 0 }).findings.length ===
+      0 &&
+    detectMultipartIntegrity(collection).findings.length === 0
+  );
+};
+
 export const repairSpikes = <T extends FeatureCollectionLike>(
   geojson: T,
   findings: SpikeFinding[],
 ): SpikeRepairResult<T> => {
   if (!Array.isArray(geojson.features) || findings.length === 0) {
-    return { geojson, removedKeys: new Set() };
+    return {
+      geojson,
+      removedKeys: new Set(),
+      failedReasons: new Map(),
+    };
   }
 
   const groupsByFeature = new Map<number, Map<string, RepairGroup>>();
@@ -120,9 +148,11 @@ export const repairSpikes = <T extends FeatureCollectionLike>(
   }
 
   const removedKeys = new Set<string>();
+  const failedReasons = new Map<string, SpikeRepairFailureReason>();
   const features = geojson.features.map((feature, featureIndex) => {
     const groups = groupsByFeature.get(featureIndex);
     if (!groups) return feature;
+    const candidateRemovedKeys = new Set<string>();
     const updates: CoordinatePathUpdate[] = [...groups.values()].map(
       (group) => ({
         geometryCollectionPath: group.geometryCollectionPath,
@@ -136,7 +166,18 @@ export const repairSpikes = <T extends FeatureCollectionLike>(
               finding.sequenceKind === "ring"
                 ? ringTargetIsCurrent(coordinates, index, finding)
                 : lineTargetIsCurrent(coordinates, index, finding);
-            if (current) removable.add(index);
+            if (current) {
+              removable.add(index);
+            } else {
+              failedReasons.set(
+                spikePathKey(
+                  featureIndex,
+                  finding.geometryCollectionPath,
+                  finding.coordinatePath,
+                ),
+                "StaleTarget",
+              );
+            }
           }
           if (removable.size === 0) return value;
 
@@ -153,11 +194,24 @@ export const repairSpikes = <T extends FeatureCollectionLike>(
             );
             if (candidate.length < 2) candidate = null;
           }
-          if (!candidate) return value;
+          if (!candidate) {
+            for (const index of removable) {
+              const finding = group.findingsByIndex.get(index)!;
+              failedReasons.set(
+                spikePathKey(
+                  featureIndex,
+                  finding.geometryCollectionPath,
+                  finding.coordinatePath,
+                ),
+                "InvalidRepairOutput",
+              );
+            }
+            return value;
+          }
 
           for (const index of removable) {
             const finding = group.findingsByIndex.get(index)!;
-            removedKeys.add(
+            candidateRemovedKeys.add(
               spikePathKey(
                 featureIndex,
                 finding.geometryCollectionPath,
@@ -169,14 +223,39 @@ export const repairSpikes = <T extends FeatureCollectionLike>(
         },
       }),
     );
-    return {
+    const candidateGeometry = updateGeometryAtCoordinatePaths(
+      feature.geometry,
+      updates,
+    );
+    if (
+      candidateRemovedKeys.size === 0 ||
+      candidateGeometry === undefined ||
+      candidateGeometry === null
+    ) {
+      for (const key of candidateRemovedKeys) {
+        failedReasons.set(key, "InvalidRepairOutput");
+      }
+      return feature;
+    }
+    const candidateFeature: GeoJsonFeatureLike = {
       ...feature,
-      geometry: updateGeometryAtCoordinatePaths(feature.geometry, updates),
+      geometry: candidateGeometry,
     };
+    if (
+      !featureTopologyIsValid(candidateFeature)
+    ) {
+      for (const key of candidateRemovedKeys) {
+        failedReasons.set(key, "InvalidRepairOutput");
+      }
+      return feature;
+    }
+    for (const key of candidateRemovedKeys) removedKeys.add(key);
+    return candidateFeature;
   });
 
   return {
     geojson: { ...geojson, features } as T,
     removedKeys,
+    failedReasons,
   };
 };
