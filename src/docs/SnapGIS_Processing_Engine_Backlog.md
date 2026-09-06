@@ -45,6 +45,8 @@
 
 ### Infrastructure
 
+-   [x] User-requested GIS intake review: verify existing Shapefile conversion through dry-run and a healing processor; document DWG/DGN runtime and CRS requirements. CAD conversion remains a follow-up, not implemented.
+
 -   [x] User-requested file-list server search and filters: type, original issue count and upload date range, with validated owner-scoped pagination.
 
 -   [x] RBush Spatial Index
