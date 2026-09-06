@@ -153,7 +153,7 @@ export const openApiDocument = {
         tags: ["Topology"],
         summary: "Upload and dry-run analyze a GIS file",
         description:
-          "Accepts GeoJSON, JSON, KML, KMZ, SHP, or a ZIP shapefile bundle up to 5 MB. No repair is performed by this request.",
+          "Accepts GeoJSON, JSON, KML, KMZ, SHP, ZIP shapefile bundles, DWG and DGN up to 5 MB. CAD requires sourceCrs (EPSG code). Conversion is server-side; DGN v8 requires an ODA-enabled runtime. No repair is performed by this request.",
         security: [{ bearerAuth: [] }],
         requestBody: {
           required: true,
@@ -170,6 +170,12 @@ export const openApiDocument = {
                       "User-facing name for identifying the uploaded dataset",
                   },
                   file: { type: "string", format: "binary" },
+                  sourceCrs: {
+                    type: "string",
+                    pattern: "^EPSG:[1-9][0-9]{3,5}$",
+                    example: "EPSG:32639",
+                    description: "Required for DWG/DGN. The actual source CRS; no CRS is guessed. Coordinates are transformed to EPSG:4326.",
+                  },
                   tolerance: {
                     type: "number",
                     minimum: 0,
@@ -215,7 +221,7 @@ export const openApiDocument = {
             schema: { type: "integer", minimum: 1, maximum: 50, default: 10 },
           },
           { name: "search", in: "query", description: "Literal case-insensitive substring in display name or original filename (trimmed).", schema: { type: "string", maxLength: 150 } },
-          { name: "fileType", in: "query", schema: { type: "string", enum: ["geojson", "json", "kml", "kmz", "shp", "zip"] } },
+          { name: "fileType", in: "query", schema: { type: "string", enum: ["geojson", "json", "kml", "kmz", "shp", "zip", "dwg", "dgn"] } },
           { name: "hasIssues", in: "query", description: "Whether the original analysis identified any issues.", schema: { type: "boolean" } },
           { name: "uploadedFrom", in: "query", description: "Inclusive upload timestamp, canonical UTC ISO format with milliseconds, e.g. 2026-09-01T00:00:00.000Z.", schema: { type: "string", format: "date-time" } },
           { name: "uploadedTo", in: "query", description: "Exclusive upload timestamp in the same canonical UTC format. For an inclusive calendar-day range, send the following local midnight converted to UTC.", schema: { type: "string", format: "date-time" } },
@@ -574,6 +580,8 @@ export const openApiDocument = {
               originalName: { type: "string" },
               sizeInBytes: { type: "integer" },
               appliedTolerance: { type: "number" },
+              sourceCrs: { type: "string", description: "Present for CAD uploads" },
+              outputCrs: { type: "string", enum: ["EPSG:4326"] },
               report: { type: "object", additionalProperties: true },
               heal: {
                 type: "object",

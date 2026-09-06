@@ -506,5 +506,6 @@ export const analyzeGisFile = async (
   filePath: string,
   originalName: string,
   options: DryRunOptions,
+  importOptions?: { sourceCrs?: string },
 ): Promise<DryRunReport> =>
-  analyzeGeoJson(await readGisFile(filePath, originalName), options);
+  analyzeGeoJson(await readGisFile(filePath, originalName, importOptions), options);

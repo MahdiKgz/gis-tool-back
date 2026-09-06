@@ -4,6 +4,7 @@ export interface GisJobData {
   filePath: string;
   size: number;
   tolerance: number;
+  sourceCrs?: string;
   overlapThresholdRatio?: number;
   nearDuplicateMaxOffsetMeters?: number;
   nearDuplicateMinIoU?: number;

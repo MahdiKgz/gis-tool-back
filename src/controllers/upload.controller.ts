@@ -1,3 +1,4 @@
+import { isCadFile, normalizedCadPath, parseCadSourceCrs } from "../services/cad-file.service";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { NextFunction, Request, Response } from "express";
@@ -75,7 +76,9 @@ export const createUploadHandler = (
           `| tolerance: ${tolerance}mm`,
       );
 
+      const sourceCrs = isCadFile(req.file.originalname) ? parseCadSourceCrs(req.body?.sourceCrs) : undefined;
       const jobData = {
+        ...(sourceCrs ? { sourceCrs } : {}),
         fileName: req.file.filename,
         originalName: req.file.originalname,
         filePath,
@@ -86,6 +89,7 @@ export const createUploadHandler = (
         filePath,
         req.file.originalname,
         { toleranceMillimeters: tolerance },
+        sourceCrs ? { sourceCrs } : undefined,
       );
       const analysis = await saveAnalysis(jobData, report, undefined, userId);
       analysisId = analysis.id;
@@ -118,6 +122,7 @@ export const createUploadHandler = (
           originalName: req.file.originalname,
           sizeInBytes: req.file.size,
           appliedTolerance: tolerance,
+          ...(sourceCrs ? { sourceCrs, outputCrs: "EPSG:4326" } : {}),
           report,
           heal: {
             method: "POST",
@@ -134,6 +139,9 @@ export const createUploadHandler = (
           ]);
         }
         if (req.file) {
+          if (isCadFile(req.file.originalname)) {
+            await fs.rm(normalizedCadPath(path.resolve(req.file.path)), { force: true }).catch(() => {});
+          }
           await fs.rm(path.resolve(req.file.path), { force: true }).catch(() => {
             // The cleanup cron remains a fallback if immediate cleanup fails.
           });

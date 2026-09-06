@@ -13,8 +13,13 @@ Content-Type: multipart/form-data
 Form fields:
 
 - `name` (required): a user-facing dataset name between 2 and 150 characters
-- `file` (required): `.geojson`, `.json`, `.kml`, `.kmz`, `.shp`, or `.zip`
+- `file` (required): `.geojson`, `.json`, `.kml`, `.kmz`, `.shp`, `.zip`, `.dwg`, or `.dgn`
 - `tolerance` (optional): positive millimeters, default `25`
+- `sourceCrs` (required for DWG/DGN): actual source EPSG code, e.g. `EPSG:32639`
+
+CAD conversion runs on the server and stores one normalized GeoJSON source for dry-run,
+healing and preview. See [CAD setup and support](CAD_Runtime.md) for runtime installation,
+DGN v8 requirements and conversion limits.
 
 The upload owner is derived from the bearer access token. The endpoint does not
 accept a client-selected `userId` because that would allow one user to create

@@ -1,5 +1,7 @@
 # GIS input format review
 
+> Historical investigation. Implementation now exists; see [CAD runtime](CAD_Runtime.md) for current support and limits.
+
 Reviewed 2026-09-06 for the user-requested Shapefile, DWG and DGN intake.
 
 ## Current implementation

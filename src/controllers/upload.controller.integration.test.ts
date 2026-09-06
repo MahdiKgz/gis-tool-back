@@ -142,3 +142,23 @@ test("upload controller performs a dry run and does not enqueue healing", async 
     ),
   );
 });
+
+test("CAD upload rejects a missing source CRS and removes the stored binary", async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cad-missing-crs-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const source = path.join(dir, "drawing.dwg");
+  await fs.writeFile(source, "binary upload");
+  let persisted = false;
+  let captured: unknown;
+  const handler = createUploadHandler({
+    createRecord: async () => { persisted = true; }, deleteRecord: async () => undefined,
+  });
+  await handler({
+    auth: { userId: "6c2d5ee6-9852-4ddd-86db-f62582ef93de" },
+    body: { name: "CAD parcel", tolerance: "25" },
+    file: { path: source, filename: "drawing.dwg", originalname: "drawing.dwg" },
+  } as Request, {} as Response, ((error: unknown) => { captured = error; }) as NextFunction);
+  assert.equal((captured as { code: string }).code, "INVALID_SOURCE_CRS");
+  assert.equal(persisted, false);
+  await assert.rejects(fs.access(source));
+});

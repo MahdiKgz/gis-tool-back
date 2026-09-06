@@ -1,0 +1,4 @@
+# Synthetic UTM 39N parcel with one consecutive duplicate vertex.
+version 2000
+lwpolyline 5 ((500000 3900000) (500000 3900100) (500100 3900100) (500100 3900100) (500100 3900000))
+lwpolyline.flag = 512

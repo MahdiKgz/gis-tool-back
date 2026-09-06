@@ -3,7 +3,7 @@ import { AppError } from "../middlewares/errorHandler";
 
 export interface FileListFilters {
   search?: string;
-  fileType?: "geojson" | "json" | "kml" | "kmz" | "shp" | "zip";
+  fileType?: "geojson" | "json" | "kml" | "kmz" | "shp" | "zip" | "dwg" | "dgn";
   hasIssues?: boolean;
   uploadedFrom?: string;
   uploadedTo?: string;
@@ -20,7 +20,7 @@ export function parseFileFilters(query: Record<string, unknown>): FileListFilter
       if (text.trim().length > 150) invalid(key);
       if (text.trim()) filters.search = text.trim();
     } else if (key === "fileType") {
-      if (!["geojson", "json", "kml", "kmz", "shp", "zip"].includes(text)) invalid(key);
+      if (!["geojson", "json", "kml", "kmz", "shp", "zip", "dwg", "dgn"].includes(text)) invalid(key);
       filters.fileType = text as FileListFilters["fileType"] & string;
     } else if (key === "hasIssues") {
       if (text !== "true" && text !== "false") invalid(key);

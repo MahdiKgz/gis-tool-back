@@ -1,3 +1,4 @@
+import { isCadFile, normalizedCadPath } from "../services/cad-file.service";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { UploadedFile } from "@prisma/client";
@@ -319,7 +320,10 @@ export const createFileController = (
 
       const cleanupTasks: Promise<void>[] = [dependencies.removeAnalysis(id)];
       const uploadPath = resolveUploadPath(record.storagePath);
-      if (uploadPath) cleanupTasks.push(dependencies.removeFile(uploadPath));
+      if (uploadPath) {
+        cleanupTasks.push(dependencies.removeFile(uploadPath));
+        if (isCadFile(record.originalName)) cleanupTasks.push(dependencies.removeFile(normalizedCadPath(uploadPath)));
+      }
       const healedOutput = analysis ? resolveHealedOutput(analysis) : null;
       if (healedOutput)
         cleanupTasks.push(dependencies.removeFile(healedOutput.filePath));

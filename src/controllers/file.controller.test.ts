@@ -326,3 +326,19 @@ test("rejects malformed filters before any database call", async () => {
   await controller.listFiles({auth:{userId,roles:["user"]},query:{hasIssues:["true","false"]}} as unknown as Request,response,next);
   assert.equal(queried,false);assert.ok(capture.error instanceof AppError);assert.equal(capture.error.statusCode,400);
 });
+
+test("deleting a CAD upload removes both the binary source and normalized GeoJSON", async () => {
+  const stored = record({ originalName: "parcel.dwg", storagePath: path.resolve("uploads/gis_files/parcel.dwg") });
+  const removed: string[] = [];
+  const controller = createFileController(dependencies({
+    findRecord: async () => stored,
+    deleteRecord: async () => true,
+    removeFile: async (filePath) => { removed.push(filePath); },
+  }));
+  const { capture, response } = responseCapture();
+  const { capture: nextResult, next } = nextCapture();
+  await controller.deleteFile({ auth: { userId }, params: { fileId } } as unknown as Request, response, next);
+  assert.equal(nextResult.error, undefined);
+  assert.equal(capture.status, 204);
+  assert.deepEqual(removed, [stored.storagePath, `${stored.storagePath}.normalized.geojson`]);
+});

@@ -1,3 +1,5 @@
+import { isCadFile, readCadFile } from "./cad-file.service";
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import { kml } from "@tmcw/togeojson";
@@ -42,8 +44,11 @@ const parseKml = (source: string): FeatureCollection =>
 export const readGisFile = async (
   filePath: string,
   originalName: string,
+  importOptions?: { sourceCrs?: string },
 ): Promise<unknown> => {
   const extension = path.extname(originalName).toLowerCase();
+
+  if (isCadFile(originalName)) return readCadFile(filePath, importOptions?.sourceCrs);
 
   if (extension === ".kml") {
     return parseKml(await fs.readFile(filePath, "utf8"));

@@ -21,3 +21,7 @@ cleaned_files/
 # Optional
 .DS_Store
 Thumbs.db
+
+# Local CAD conversion runtime
+.cad-runtime/
+__pycache__/
