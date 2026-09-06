@@ -25,6 +25,8 @@ import {
   type UserUploadSummary,
 } from "../services/upload-record.service";
 
+import { parseFileFilters, type FileListFilters } from "../services/file-list-filters";
+
 const DEFAULT_FILE_LIMIT = 10;
 const MAX_FILE_LIMIT = 50;
 const UUID_PATTERN =
@@ -39,6 +41,7 @@ interface FileControllerDependencies {
     userId: string,
     skip: number,
     limit: number,
+    filters?: FileListFilters,
   ) => Promise<UploadRecordPage>;
   findRecord: (id: string, userId: string) => Promise<UploadedFile | null>;
   renameRecord: (
@@ -213,10 +216,12 @@ export const createFileController = (
     try {
       const userId = getAuthenticatedUserId(req);
       const { skip, limit } = parseFilePagination(req.query);
+      const filters = parseFileFilters(req.query);
       const { records, total } = await dependencies.listRecords(
         userId,
         skip,
         limit,
+        filters,
       );
       const items = await Promise.all(
         records.map(async (record) =>

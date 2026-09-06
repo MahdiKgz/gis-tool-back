@@ -309,3 +309,20 @@ test("deletes an owned completed record and all managed artifacts", async () => 
     [record().storagePath, outputPath].sort(),
   );
 });
+
+test("passes validated server filters and pagination to the authenticated user's storage query", async () => {
+  let requested: unknown;
+  const controller=createFileController(dependencies({listRecords:async (...args)=>{requested=args;return {records:[],total:23}}}));
+  const {capture,response}=responseCapture();const {capture:failure,next}=nextCapture();
+  await controller.listFiles({auth:{userId,roles:["user"]},query:{skip:"10",limit:"10",search:"  parcels ",fileType:"geojson",hasIssues:"true"}} as unknown as Request,response,next);
+  assert.equal(failure.error,undefined);
+  assert.deepEqual(requested,[userId,10,10,{search:"parcels",fileType:"geojson",hasIssues:true}]);
+  assert.deepEqual((capture.body as {data:{pagination:unknown}}).data.pagination,{skip:10,limit:10,total:23,hasMore:true});
+});
+test("rejects malformed filters before any database call", async () => {
+  let queried=false;
+  const controller=createFileController(dependencies({listRecords:async()=>{queried=true;return {records:[],total:0}}}));
+  const {response}=responseCapture();const {capture,next}=nextCapture();
+  await controller.listFiles({auth:{userId,roles:["user"]},query:{hasIssues:["true","false"]}} as unknown as Request,response,next);
+  assert.equal(queried,false);assert.ok(capture.error instanceof AppError);assert.equal(capture.error.statusCode,400);
+});

@@ -1,5 +1,6 @@
 import type { UploadedFile } from "@prisma/client";
 import type { HealStatus } from "./analysis-store.service";
+import { buildUploadWhere, type FileListFilters } from "./file-list-filters";
 import { database } from "./database.service";
 
 export interface CreateUploadRecordInput {
@@ -36,22 +37,26 @@ export const deleteUploadRecord = async (id: string): Promise<void> => {
 export const findUploadRecord = (id: string): Promise<UploadedFile | null> =>
   database.uploadedFile.findUnique({ where: { id } });
 
-export const listUserUploadRecords = async (
+export const createUploadRecordLister = (client = database) => async (
   userId: string,
   skip: number,
   limit: number,
+  filters: FileListFilters = {},
 ): Promise<UploadRecordPage> => {
-  const [records, total] = await database.$transaction([
-    database.uploadedFile.findMany({
-      where: { userId },
+  const where = buildUploadWhere(userId, filters);
+  const [records, total] = await client.$transaction([
+    client.uploadedFile.findMany({
+      where,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip,
       take: limit,
     }),
-    database.uploadedFile.count({ where: { userId } }),
+    client.uploadedFile.count({ where }),
   ]);
   return { records, total };
 };
+
+export const listUserUploadRecords = createUploadRecordLister();
 
 export const findUserUploadRecord = (
   id: string,

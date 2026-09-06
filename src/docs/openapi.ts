@@ -214,10 +214,15 @@ export const openApiDocument = {
             in: "query",
             schema: { type: "integer", minimum: 1, maximum: 50, default: 10 },
           },
+          { name: "search", in: "query", description: "Literal case-insensitive substring in display name or original filename (trimmed).", schema: { type: "string", maxLength: 150 } },
+          { name: "fileType", in: "query", schema: { type: "string", enum: ["geojson", "json", "kml", "kmz", "shp", "zip"] } },
+          { name: "hasIssues", in: "query", description: "Whether the original analysis identified any issues.", schema: { type: "boolean" } },
+          { name: "uploadedFrom", in: "query", description: "Inclusive upload timestamp, canonical UTC ISO format with milliseconds, e.g. 2026-09-01T00:00:00.000Z.", schema: { type: "string", format: "date-time" } },
+          { name: "uploadedTo", in: "query", description: "Exclusive upload timestamp in the same canonical UTC format. For an inclusive calendar-day range, send the following local midnight converted to UTC.", schema: { type: "string", format: "date-time" } },
         ],
         responses: {
           "200": {
-            description: "Current user's file page",
+            description: "Current user's filtered file page; total and hasMore use the same filters before pagination.",
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/FileListResponse" },

@@ -45,6 +45,8 @@
 
 ### Infrastructure
 
+-   [x] User-requested file-list server search and filters: type, original issue count and upload date range, with validated owner-scoped pagination.
+
 -   [x] RBush Spatial Index
 -   [x] BullMQ Worker
 -   [x] GeoJSON Support
