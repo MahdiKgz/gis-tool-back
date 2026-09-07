@@ -14,6 +14,7 @@ export const openApiDocument = {
   },
   servers: [{ url: "/api", description: "Current server" }],
   tags: [
+    { name: "Conversion", description: "Standalone format and CRS conversion" },
     { name: "System", description: "Service health" },
     { name: "Authentication", description: "Account and session lifecycle" },
     { name: "Topology", description: "GIS validation and healing workflow" },
@@ -23,6 +24,114 @@ export const openApiDocument = {
     },
   ],
   paths: {
+    "/convert": {
+      post: {
+        tags: ["Conversion"],
+        security: [{ bearerAuth: [] }],
+        summary:
+          "Convert one GeoJSON, Shapefile ZIP or DXF and/or reproject its CRS",
+        description:
+          "Independent of topology healing. Up to 5 MiB returns a binary file; over 5 MiB and up to 250 MiB returns a queued job. DXF requires sourceCRS; Shapefile detects PRJ. Omitted target options preserve input format/CRS.",
+        requestBody: {
+          required: true,
+          content: {
+            "multipart/form-data": {
+              schema: {
+                type: "object",
+                required: ["file"],
+                properties: {
+                  file: { type: "string", format: "binary" },
+                  targetFormat: {
+                    type: "string",
+                    enum: ["geojson", "shapefile", "dxf"],
+                  },
+                  sourceCRS: { type: "string", example: "EPSG:32639" },
+                  targetCRS: { type: "string", example: "EPSG:4326" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description:
+              "Converted attachment (Shapefile is a ZIP). X-Conversion-Result is a URI-encoded JSON report containing feature count, CRS and warnings.",
+            content: {
+              "application/octet-stream": {
+                schema: { type: "string", format: "binary" },
+              },
+            },
+          },
+          "202": {
+            description:
+              "Queued conversion: data.jobId identifies the owner's polling/download resource.",
+          },
+          "413": { description: "Upload or converter resource limit exceeded" },
+          "422": {
+            description:
+              "Invalid file, unsupported geometry/attributes, or conversion would lose data",
+          },
+          "503": { description: "GIS runtime or conversion queue unavailable" },
+          ...errorResponses,
+        },
+      },
+    },
+    "/convert/{id}": {
+      get: {
+        tags: ["Conversion"],
+        security: [{ bearerAuth: [] }],
+        summary: "Read owner-scoped conversion status",
+        parameters: [
+          {
+            in: "path",
+            name: "id",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        responses: {
+          "200": {
+            description:
+              "data.status is processing, completed (with result), or failed (with error).",
+          },
+          "404": {
+            description: "Not found, expired, or owned by another user",
+          },
+          ...errorResponses,
+        },
+      },
+    },
+    "/convert/{id}/download": {
+      get: {
+        tags: ["Conversion"],
+        security: [{ bearerAuth: [] }],
+        summary: "Download the owner's completed conversion",
+        parameters: [
+          {
+            in: "path",
+            name: "id",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        responses: {
+          "200": {
+            description:
+              "Converted attachment with X-Conversion-Result metadata",
+            content: {
+              "application/octet-stream": {
+                schema: { type: "string", format: "binary" },
+              },
+            },
+          },
+          "404": { description: "Not found or not owned" },
+          "409": { description: "Conversion is not ready" },
+          "410": { description: "Output has expired" },
+          ...errorResponses,
+        },
+      },
+    },
+
     "/health": {
       get: {
         tags: ["System"],
@@ -174,7 +283,8 @@ export const openApiDocument = {
                     type: "string",
                     pattern: "^EPSG:[1-9][0-9]{3,5}$",
                     example: "EPSG:32639",
-                    description: "Required for DWG/DGN. The actual source CRS; no CRS is guessed. Coordinates are transformed to EPSG:4326.",
+                    description:
+                      "Required for DWG/DGN. The actual source CRS; no CRS is guessed. Coordinates are transformed to EPSG:4326.",
                   },
                   tolerance: {
                     type: "number",
@@ -220,15 +330,55 @@ export const openApiDocument = {
             in: "query",
             schema: { type: "integer", minimum: 1, maximum: 50, default: 10 },
           },
-          { name: "search", in: "query", description: "Literal case-insensitive substring in display name or original filename (trimmed).", schema: { type: "string", maxLength: 150 } },
-          { name: "fileType", in: "query", schema: { type: "string", enum: ["geojson", "json", "kml", "kmz", "shp", "zip", "dwg", "dgn"] } },
-          { name: "hasIssues", in: "query", description: "Whether the original analysis identified any issues.", schema: { type: "boolean" } },
-          { name: "uploadedFrom", in: "query", description: "Inclusive upload timestamp, canonical UTC ISO format with milliseconds, e.g. 2026-09-01T00:00:00.000Z.", schema: { type: "string", format: "date-time" } },
-          { name: "uploadedTo", in: "query", description: "Exclusive upload timestamp in the same canonical UTC format. For an inclusive calendar-day range, send the following local midnight converted to UTC.", schema: { type: "string", format: "date-time" } },
+          {
+            name: "search",
+            in: "query",
+            description:
+              "Literal case-insensitive substring in display name or original filename (trimmed).",
+            schema: { type: "string", maxLength: 150 },
+          },
+          {
+            name: "fileType",
+            in: "query",
+            schema: {
+              type: "string",
+              enum: [
+                "geojson",
+                "json",
+                "kml",
+                "kmz",
+                "shp",
+                "zip",
+                "dwg",
+                "dgn",
+              ],
+            },
+          },
+          {
+            name: "hasIssues",
+            in: "query",
+            description: "Whether the original analysis identified any issues.",
+            schema: { type: "boolean" },
+          },
+          {
+            name: "uploadedFrom",
+            in: "query",
+            description:
+              "Inclusive upload timestamp, canonical UTC ISO format with milliseconds, e.g. 2026-09-01T00:00:00.000Z.",
+            schema: { type: "string", format: "date-time" },
+          },
+          {
+            name: "uploadedTo",
+            in: "query",
+            description:
+              "Exclusive upload timestamp in the same canonical UTC format. For an inclusive calendar-day range, send the following local midnight converted to UTC.",
+            schema: { type: "string", format: "date-time" },
+          },
         ],
         responses: {
           "200": {
-            description: "Current user's filtered file page; total and hasMore use the same filters before pagination.",
+            description:
+              "Current user's filtered file page; total and hasMore use the same filters before pagination.",
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/FileListResponse" },
@@ -580,7 +730,10 @@ export const openApiDocument = {
               originalName: { type: "string" },
               sizeInBytes: { type: "integer" },
               appliedTolerance: { type: "number" },
-              sourceCrs: { type: "string", description: "Present for CAD uploads" },
+              sourceCrs: {
+                type: "string",
+                description: "Present for CAD uploads",
+              },
               outputCrs: { type: "string", enum: ["EPSG:4326"] },
               report: { type: "object", additionalProperties: true },
               heal: {

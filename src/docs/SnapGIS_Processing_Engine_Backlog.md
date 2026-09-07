@@ -45,6 +45,8 @@
 
 ### Infrastructure
 
+-   [x] User-requested standalone format/CRS conversion on main: GeoJSON, zipped Shapefile and DXF input/output; shared PROJ CRS helpers, explicit CAD source CRS, bounded synchronous/queued conversion, owner-scoped download/status, cleanup and native/HTTP regression tests. KML conversion deferred per the supplied plan. See Format_CRS_Conversion.md.
+
 -   [x] CAD intake: server-side DWG/DGN conversion, explicit EPSG CRS, shared normalized input for dry-run/healing/preview, bounded processing and binary integration tests. DGN v8 requires an ODA-enabled GDAL runtime.
 
 -   [x] User-requested GIS intake review: verify existing Shapefile conversion through dry-run and a healing processor; document DWG/DGN runtime and CRS requirements. CAD conversion remains a follow-up, not implemented.

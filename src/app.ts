@@ -11,6 +11,8 @@ import { router as fileRouter } from "./routes/file.route";
 import { openApiDocument } from "./docs/openapi";
 import { AppError } from "./middlewares/errorHandler";
 
+import { router as conversionRouter } from "./routes/conversion.route";
+
 const app: Application = express();
 
 app.set("trust proxy", 1);
@@ -46,6 +48,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/upload", uploadRouter);
 app.use("/api/heal", healRouter);
 app.use("/api/files", fileRouter);
+app.use("/api/convert", conversionRouter);
 
 app.get(["/health", "/api/health"], (_req, res) => {
   res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });

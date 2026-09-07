@@ -1,3 +1,4 @@
+import { cleanExpiredConversions } from "./conversion.service";
 import cron from "node-cron";
 import fs from "fs";
 import path from "path";
@@ -12,6 +13,7 @@ const ONE_WEEK_IN_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const initCleanupCron = (): void => {
   cron.schedule("0 1 * * *", () => {
+    void cleanExpiredConversions().catch((error) => console.error("Conversion cleanup failed:", error));
     console.log("🧹 [Cron] Starting daily storage cleanup...");
     const now = Date.now();
 

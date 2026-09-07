@@ -17,7 +17,7 @@ def fail(code, message):
 try:
     import pyogrio
     from pyogrio.raw import read
-    from pyproj import CRS, Transformer
+    from crs_utils import coordinate_system, coordinate_transformer
     from shapely import from_wkb
     from shapely.geometry import mapping
     from shapely.ops import transform
@@ -61,10 +61,10 @@ def vertex_count(geometry):
 
 def convert(source, target, source_crs, dwgread):
     try:
-        crs = CRS.from_user_input(source_crs)
+        crs = coordinate_system(source_crs)
         if not (crs.is_geographic or crs.is_projected):
             fail("INVALID_SOURCE_CRS", "Choose a geographic or projected EPSG coordinate system.")
-        transformer = Transformer.from_crs(crs, "EPSG:4326", always_xy=True, allow_ballpark=False)
+        transformer = coordinate_transformer(crs, "EPSG:4326")
     except Exception:
         fail("INVALID_SOURCE_CRS", "The supplied EPSG coordinate system cannot be transformed to WGS84.")
 

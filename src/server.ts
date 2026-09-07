@@ -7,6 +7,11 @@ import { getAccessTokenSecret } from "./config/auth.config";
 import { gisQueue, redisConnection } from "./services/queue.service";
 import { closeHealingEventSource } from "./services/heal-event.service";
 
+import {
+  conversionQueue,
+  startConversionWorker,
+} from "./services/conversion-queue.service";
+
 const PORT = process.env.PORT || 3000;
 
 const bootstrap = async () => {
@@ -14,6 +19,8 @@ const bootstrap = async () => {
   await initializeDatabase();
   await connectAuthRedis();
   const { gisWorker } = await import("./workers/gis.worker");
+
+  const conversionWorker = startConversionWorker();
 
   const server = app.listen(PORT, () => {
     console.log(`🚀 Server is running on http://localhost:${PORT}`);
@@ -24,8 +31,9 @@ const bootstrap = async () => {
   const shutdown = async (signal: string) => {
     console.log(`${signal} received; shutting down gracefully`);
     server.close(async () => {
+      await Promise.allSettled([gisWorker.close(), conversionWorker.close()]);
       await Promise.allSettled([
-        gisWorker.close(),
+        conversionQueue.close(),
         gisQueue.close(),
         closeHealingEventSource(),
         redisConnection.quit(),

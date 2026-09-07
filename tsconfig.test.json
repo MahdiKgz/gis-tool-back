@@ -6,6 +6,8 @@
   },
   "include": [
     "src/processing/**/*.ts",
+    "src/controllers/conversion.controller*.ts",
+    "src/routes/conversion.route.ts",
     "src/controllers/upload.controller.ts",
     "src/controllers/upload.controller.integration.test.ts",
     "src/controllers/heal-status.controller.integration.test.ts",

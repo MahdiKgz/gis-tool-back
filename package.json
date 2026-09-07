@@ -18,7 +18,8 @@
     "predev": "prisma generate",
     "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node --files' src/server.ts",
     "cad:setup": "bash scripts/setup-cad.sh",
-    "test:cad": "pnpm run test:compile && CAD_INTEGRATION=1 node --test dist-test/services/cad-upload.integration.test.js"
+    "test:cad": "pnpm run test:compile && CAD_INTEGRATION=1 node --test dist-test/services/cad-upload.integration.test.js",
+    "test:conversion": "pnpm run test:compile && CONVERSION_INTEGRATION=1 node --test --test-isolation=none dist-test/services/conversion*.test.js dist-test/controllers/conversion.controller*.test.js"
   },
   "keywords": [],
   "author": "",
