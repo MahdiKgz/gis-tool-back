@@ -1,3 +1,4 @@
+import { compactReport } from "../services/public-report.service";
 import { isCadFile, normalizedCadPath } from "../services/cad-file.service";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -138,12 +139,13 @@ const buildFileSummary = (
 const buildFileDetail = (
   record: UploadedFile,
   analysis: StoredAnalysis | null,
+  compact = false,
 ) => {
   const summary = buildFileSummary(record, analysis);
   return {
     ...summary,
     mimeType: record.mimeType,
-    report: analysis?.report ?? null,
+    report: analysis ? (compact ? compactReport(analysis.report) : analysis.report) : null,
     healing: {
       progress: analysis?.healProgress ?? 0,
       queuedAt: analysis?.queuedAt ?? null,
@@ -266,7 +268,7 @@ export const createFileController = (
       );
       res
         .status(200)
-        .json({ success: true, data: buildFileDetail(record, analysis) });
+        .json({ success: true, data: buildFileDetail(record, analysis, req.query?.report === "compact") });
     } catch (error) {
       next(error);
     }

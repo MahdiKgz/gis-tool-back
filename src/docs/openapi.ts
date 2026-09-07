@@ -1,3 +1,9 @@
+const compactReportParameter = {
+  name: "report", in: "query", required: false,
+  schema: { type: "string", enum: ["compact"] },
+  description: "Compact map response: unchanged counts/groups/geometry, empty checks, manual marker issues with stable issueIndex and empty details. Read complete issue details from /heal/{jobId}/issues. Omit for the legacy full report.",
+};
+
 const errorResponses = {
   "400": { $ref: "#/components/responses/BadRequest" },
   "401": { $ref: "#/components/responses/Unauthorized" },
@@ -261,6 +267,7 @@ export const openApiDocument = {
       post: {
         tags: ["Topology"],
         summary: "Upload and dry-run analyze a GIS file",
+        parameters: [compactReportParameter],
         description:
           "Accepts GeoJSON, JSON, KML, KMZ, SHP, ZIP shapefile bundles, DWG and DGN up to 5 MB. CAD requires sourceCrs (EPSG code). Conversion is server-side; DGN v8 requires an ODA-enabled runtime. No repair is performed by this request.",
         security: [{ bearerAuth: [] }],
@@ -414,6 +421,7 @@ export const openApiDocument = {
       get: {
         tags: ["Files"],
         summary: "Get an owned file with its analysis and healing details",
+        parameters: [compactReportParameter],
         security: [{ bearerAuth: [] }],
         responses: {
           "200": {
@@ -467,6 +475,23 @@ export const openApiDocument = {
           "204": { description: "File deleted" },
           "404": { $ref: "#/components/responses/NotFound" },
           "409": { description: "Healing is queued or processing" },
+          ...errorResponses,
+        },
+      },
+    },
+    "/heal/{jobId}/issues": {
+      parameters: [{ $ref: "#/components/parameters/JobId" }],
+      get: {
+        tags: ["Topology"], security: [{ bearerAuth: [] }],
+        summary: "Read an owned analysis's complete issue details in bounded pages",
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1, default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 25 } },
+          { name: "code", in: "query", schema: { type: "string", maxLength: 128 } },
+        ],
+        responses: {
+          "200": { description: "data: {items, page, limit, total}. Each item includes its original issueIndex and full details; filtering occurs before pagination." },
+          "404": { $ref: "#/components/responses/NotFound" },
           ...errorResponses,
         },
       },

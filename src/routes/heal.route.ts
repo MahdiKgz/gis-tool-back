@@ -4,6 +4,7 @@ import {
   healAnalyzedFile,
 } from "../controllers/heal.controller";
 import {
+  getAnalysisIssues,
   downloadHealedOutput,
   getHealStatus,
   previewOriginalInput,
@@ -21,6 +22,7 @@ router.post("/:jobId", healAnalyzedFile);
 router.post("/:jobId/cancel", cancelHealing);
 router.get("/:jobId/events", streamHealEvents);
 router.get("/:jobId", getHealStatus);
+router.get("/:jobId/issues", getAnalysisIssues);
 router.get("/:jobId/original", previewOriginalInput);
 router.get("/:jobId/output", previewHealedOutput);
 router.get("/:jobId/download", downloadHealedOutput);

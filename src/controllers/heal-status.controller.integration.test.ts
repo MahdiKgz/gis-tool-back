@@ -15,6 +15,7 @@ import {
   downloadHealedOutput,
   createHealEventStream,
   getHealStatus,
+  getAnalysisIssues,
   previewOriginalInput,
   previewHealedOutput,
   updateManualReview,
@@ -454,4 +455,23 @@ test("persists authenticated manual-review decisions", async (t) => {
     (await getAnalysis(analysis.id))?.reviewDecisions?.["0"]?.action,
     "approved",
   );
+});
+
+
+test("issue details are owner-scoped, paginated and validate query input", async (t) => {
+  const analysis = await saveAnalysis({ fileName: "issues.geojson", originalName: "issues.geojson", filePath: "/tmp/issues.geojson", size: 0, tolerance: 25 }, emptyReport, undefined, ownerId);
+  t.after(() => fs.rm(path.resolve("uploads/gis_analyses", `${analysis.id}.json`), { force: true }));
+  const call = async (userId: string | null, query: Record<string, unknown>) => {
+    let body: any, error: any;
+    await getAnalysisIssues({ params: { jobId: analysis.id }, query, ...(userId ? { auth: { userId, roles: ["user"] } } : {}) } as unknown as Request,
+      { json: (value: unknown) => { body = value; } } as Response,
+      ((value: unknown) => { error = value; }) as NextFunction);
+    return { body, error };
+  };
+  const owned = await call(ownerId, { page: "1", limit: "25" });
+  assert.equal(owned.body.data.total, 0);
+  assert.deepEqual(owned.body.data.items, []);
+  assert.equal((await call("another-user", {})).error.statusCode, 404);
+  assert.equal((await call(null, {})).error.statusCode, 401);
+  assert.equal((await call(ownerId, { limit: "101" })).error.statusCode, 400);
 });

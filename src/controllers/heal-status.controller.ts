@@ -1,3 +1,4 @@
+import { issuePage } from "../services/public-report.service";
 import fs from "node:fs/promises";
 import { NextFunction, Request, Response } from "express";
 import { AppError } from "../middlewares/errorHandler";
@@ -522,4 +523,11 @@ export const downloadHealedOutput = async (
   } catch (error) {
     next(error);
   }
+};
+
+export const getAnalysisIssues = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const analysis = await getStoredAnalysis(req.params.jobId, getAuthenticatedUserId(req));
+    res.json({ success: true, data: issuePage(analysis.report, req.query) });
+  } catch (error) { next(error); }
 };

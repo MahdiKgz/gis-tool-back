@@ -1,3 +1,4 @@
+import { compactReport } from "../services/public-report.service";
 import { isCadFile, normalizedCadPath, parseCadSourceCrs } from "../services/cad-file.service";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -123,7 +124,7 @@ export const createUploadHandler = (
           sizeInBytes: req.file.size,
           appliedTolerance: tolerance,
           ...(sourceCrs ? { sourceCrs, outputCrs: "EPSG:4326" } : {}),
-          report,
+          report: req.query?.report === "compact" ? compactReport(report) : report,
           heal: {
             method: "POST",
             path: `/api/heal/${analysis.id}`,

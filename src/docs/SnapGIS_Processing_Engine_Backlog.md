@@ -45,6 +45,8 @@
 
 ### Infrastructure
 
+-   [x] User-requested CAD map response performance: opt-in compact upload/file reports, preserved geometry/counts and manual issue identities, owner-scoped paginated issue details (maximum 100/page), API documentation and projection/pagination/ownership regression tests. Analytical reports and healing input remain unchanged. See CAD_Map_Performance.md.
+
 -   [x] User-requested standalone format/CRS conversion on main: GeoJSON, zipped Shapefile and DXF input/output; shared PROJ CRS helpers, explicit CAD source CRS, bounded synchronous/queued conversion, owner-scoped download/status, cleanup and native/HTTP regression tests. KML conversion deferred per the supplied plan. See Format_CRS_Conversion.md.
 
 -   [x] CAD intake: server-side DWG/DGN conversion, explicit EPSG CRS, shared normalized input for dry-run/healing/preview, bounded processing and binary integration tests. DGN v8 requires an ODA-enabled GDAL runtime.
