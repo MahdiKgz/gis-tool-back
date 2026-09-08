@@ -102,3 +102,28 @@ mind before increasing limits or concurrency.
 
 Frontend: `pnpm exec vitest run`, `pnpm build`. The UI has tests for binary result
 handling, input validation, direct/queued paths, error display, and abort/URL cleanup.
+
+
+## Exporting healed outputs
+
+`POST /api/heal/:jobId/export` accepts JSON `{targetFormat, targetCRS}` after healing
+completes. Formats are `geojson`, `shapefile` (ZIP) and `dxf`. This is the same
+set of writable formats as the standalone converter; DWG/DGN/KML intake does not
+imply corresponding output drivers.
+
+The server verifies ownership, requires a completed job, resolves its managed
+output, and copies it into a private conversion workspace. It never accepts an
+arbitrary path or URL from the client. The source CRS of healed geometry is
+EPSG:4326; a conflicting supplied sourceCRS is rejected. Target CRS is optional
+and defaults to retaining WGS84. Existing geometry/attribute compatibility rules,
+limits and loss notices apply. The healed file is never modified.
+
+Responses reuse the standalone conversion protocol: binary with report headers
+for inputs up to 5 MiB, or a 202 job receipt for larger inputs. The queue owns its
+source copy, so removal of the original healed artifact after submission does
+not break an accepted export. Status/download remain authenticated and scoped to
+the conversion owner; queued files have the existing 24-hour retention.
+
+The frontend export dialog is available on map-result download and in the file
+management detail dialog. It shows the known source CRS and lets users select a
+format and target EPSG; no geometry is downloaded/re-uploaded to request conversion.

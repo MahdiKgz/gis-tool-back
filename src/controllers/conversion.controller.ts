@@ -1,9 +1,13 @@
+import { getStoredAnalysis } from "./heal-status.controller";
+import { resolveHealedOutput } from "../services/heal-result.service";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { NextFunction, Request, Response } from "express";
 import { getAuthenticatedUserId } from "../middlewares/auth.middleware";
 import { AppError } from "../middlewares/errorHandler";
 import {
+  createConversionDirectory,
+  MAX_CONVERSION_MB,
   ConversionResult,
   ConversionTask,
   CONVERSION_RETENTION_SECONDS,
@@ -22,6 +26,7 @@ export interface ConversionJobView {
   error?: { code: string; message: string };
 }
 interface Dependencies {
+  getOwnedAnalysis?: typeof getStoredAnalysis;
   convert: typeof runConversion;
   enqueue: (task: ConversionTask) => Promise<void>;
   getJob: (id: string) => Promise<ConversionJobView | null>;
@@ -85,6 +90,100 @@ const sendOutput = async (
 };
 
 export const createConversionHandlers = (deps: Dependencies = dependencies) => {
+  const execute = async (
+    task: ConversionTask,
+    size: number,
+    res: Response,
+    signal: AbortSignal,
+    markQueued: () => void,
+  ) => {
+    if (signal.aborted) throw new Error("Export request cancelled");
+    if (size > SYNC_CONVERSION_BYTES) {
+      await deps.enqueue(task);
+      markQueued();
+      res
+        .status(202)
+        .json({ success: true, data: { jobId: task.id, status: "queued" } });
+      return true;
+    }
+    const result = await deps.convert(task, signal);
+    await sendOutput(res, task, result);
+    return false;
+  };
+  const exportHealed = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) => {
+    let directory: string | undefined;
+    let queued = false;
+    const abort = new AbortController();
+    const onClose = () => {
+      if (!res.writableFinished) abort.abort();
+    };
+    res.once("close", onClose);
+    try {
+      const userId = getAuthenticatedUserId(req);
+      const analysis = await (deps.getOwnedAnalysis ?? getStoredAnalysis)(
+        req.params.jobId,
+        userId,
+      );
+      if (analysis.healStatus !== "completed")
+        throw new AppError(
+          409,
+          "The healed output is not ready.",
+          "CONVERSION_NOT_READY",
+        );
+      const output = resolveHealedOutput(analysis);
+      if (!output)
+        throw new AppError(
+          410,
+          "The healed output is unavailable.",
+          "CONVERSION_EXPIRED",
+        );
+      // Healing outputs are normalized WGS84; never relabel their coordinates using a user-supplied CRS.
+      if (
+        req.body?.sourceCRS &&
+        String(req.body.sourceCRS).trim().toUpperCase() !== "EPSG:4326"
+      )
+        throw new AppError(
+          400,
+          "Healed output source CRS is EPSG:4326.",
+          "INVALID_SOURCE_CRS",
+        );
+      const options = parseConversionOptions("output.geojson", {
+        ...req.body,
+        sourceCRS: "EPSG:4326",
+      });
+      const info = await fs.stat(output.filePath).catch(() => {
+        throw new AppError(
+          410,
+          "The healed output has expired.",
+          "CONVERSION_EXPIRED",
+        );
+      });
+      if (!info.isFile() || info.size > MAX_CONVERSION_MB * 1024 * 1024)
+        throw new AppError(
+          413,
+          "The output exceeds conversion capacity.",
+          "CONVERSION_LIMIT_EXCEEDED",
+        );
+      const created = await createConversionDirectory();
+      directory = created.directory;
+      const source = path.join(directory, "input.geojson");
+      await fs.copyFile(output.filePath, source);
+      const task: ConversionTask = { ...options, ...created, source, userId };
+      await execute(task, info.size, res, abort.signal, () => {
+        queued = true;
+      });
+    } catch (error) {
+      if (!res.headersSent) next(error);
+    } finally {
+      res.off("close", onClose);
+      if (!queued && directory)
+        await removeConversion(directory).catch(() => {});
+    }
+  };
   const upload = async (req: Request, res: Response, next: NextFunction) => {
     let queued = false;
     const directory = req.file ? path.dirname(req.file.path) : undefined;
@@ -107,16 +206,9 @@ export const createConversionHandlers = (deps: Dependencies = dependencies) => {
         userId,
         source: path.resolve(req.file.path),
       };
-      if (req.file.size > SYNC_CONVERSION_BYTES) {
-        await deps.enqueue(task);
+      await execute(task, req.file.size, res, abort.signal, () => {
         queued = true;
-        res
-          .status(202)
-          .json({ success: true, data: { jobId: task.id, status: "queued" } });
-      } else {
-        const result = await deps.convert(task, abort.signal);
-        await sendOutput(res, task, result);
-      }
+      });
     } catch (error) {
       if (!res.headersSent) next(error);
     } finally {
@@ -189,5 +281,5 @@ export const createConversionHandlers = (deps: Dependencies = dependencies) => {
       if (!res.headersSent) next(error);
     }
   };
-  return { upload, status, download };
+  return { upload, status, download, exportHealed };
 };

@@ -1,3 +1,4 @@
+import type { StoredAnalysis } from "../services/analysis-store.service";
 import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs/promises";
@@ -189,6 +190,39 @@ test("job retention is enforced before scheduled disk cleanup", async () => {
       failure = error;
     });
     assert.equal(failure.code, "CONVERSION_EXPIRED");
+  } finally {
+    await removeConversion(task.directory);
+  }
+});
+
+test("stored exports reject unfinished jobs, unsupported formats and source CRS relabeling before conversion", async () => {
+  const { req, res, task } = await fixture(0);
+  req.params.jobId = "job";
+  const analysis = {
+    healStatus: "processing",
+    healResult: {
+      outputFilePath: path.resolve("uploads/cleaned_files/test-export.geojson"),
+    },
+  } as StoredAnalysis;
+  const handlers = createConversionHandlers({
+    getOwnedAnalysis: async () => analysis,
+    convert: async () => assert.fail("must not convert invalid requests"),
+    enqueue: async () => assert.fail("must not enqueue invalid requests"),
+    getJob: async () => null,
+  });
+  try {
+    await assert.rejects(handlers.exportHealed(req, res, next), {
+      code: "CONVERSION_NOT_READY",
+    });
+    analysis.healStatus = "completed";
+    req.body = { targetFormat: "dwg" };
+    await assert.rejects(handlers.exportHealed(req, res, next), {
+      code: "UNSUPPORTED_CONVERSION_FORMAT",
+    });
+    req.body = { targetFormat: "geojson", sourceCRS: "EPSG:32639" };
+    await assert.rejects(handlers.exportHealed(req, res, next), {
+      code: "INVALID_SOURCE_CRS",
+    });
   } finally {
     await removeConversion(task.directory);
   }

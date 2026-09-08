@@ -1,3 +1,4 @@
+import { createConversionHandlers } from "../controllers/conversion.controller";
 import express from "express";
 import {
   cancelHealing,
@@ -19,6 +20,7 @@ const router = express.Router();
 router.use(requireAuthentication);
 
 router.post("/:jobId", healAnalyzedFile);
+router.post("/:jobId/export", createConversionHandlers().exportHealed);
 router.post("/:jobId/cancel", cancelHealing);
 router.get("/:jobId/events", streamHealEvents);
 router.get("/:jobId", getHealStatus);

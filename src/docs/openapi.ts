@@ -612,6 +612,29 @@ export const openApiDocument = {
         },
       },
     },
+    "/heal/{jobId}/export": {
+      parameters: [{ $ref: "#/components/parameters/JobId" }],
+      post: {
+        tags: ["Conversion"], security: [{ bearerAuth: [] }],
+        summary: "Export owned healed output in a selected format and target CRS",
+        description: "Uses the stored healed GeoJSON directly; no browser re-upload. Source CRS is fixed to EPSG:4326. Up to 5 MiB converts synchronously; larger inputs use the existing conversion queue. Full analytical geometry remains unchanged.",
+        requestBody: { required: true, content: { "application/json": { schema: {
+          type: "object", properties: {
+            targetFormat: { type: "string", enum: ["geojson", "shapefile", "dxf"], default: "geojson" },
+            targetCRS: { type: "string", example: "EPSG:32639", default: "EPSG:4326" },
+          },
+        } } } },
+        responses: {
+          "200": { description: "Binary converted file with Content-Disposition and X-Conversion-Result headers" },
+          "202": { description: "Conversion job receipt; use GET /convert/{id} and /convert/{id}/download" },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "409": { description: "Healing output is not ready" },
+          "410": { description: "Stored output has expired or is unavailable" },
+          "413": { description: "Output exceeds conversion limits" },
+          ...errorResponses,
+        },
+      },
+    },
     "/heal/{jobId}/output": {
       get: {
         tags: ["Topology"],
