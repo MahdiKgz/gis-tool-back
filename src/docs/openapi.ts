@@ -16,7 +16,7 @@ export const openApiDocument = {
     title: "SnapGIS API",
     version: "1.0.0",
     description:
-      "Authentication and topology analysis/healing API. Access tokens are short-lived Bearer JWTs. The refresh token is rotated in an HttpOnly cookie and is never exposed to JavaScript.",
+      "Authentication and topology analysis/healing API. In S3 mode, original/healed preview and download endpoints return a 302 signed GET URL valid for 15 minutes; clients must follow redirects. Access tokens are short-lived Bearer JWTs. The refresh token is rotated in an HttpOnly cookie and is never exposed to JavaScript.",
   },
   servers: [{ url: "/api", description: "Current server" }],
   tags: [
@@ -30,6 +30,23 @@ export const openApiDocument = {
     },
   ],
   paths: {
+    "/upload/presign": {
+      post: {
+        tags: ["Upload"], summary: "Authorize a direct MinIO multipart POST (15 minutes)",
+        security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["fileName", "size"], properties: { fileName: { type: "string", maxLength: 255 }, size: { type: "integer", minimum: 1, maximum: 262144000 } } } } } },
+        responses: { "201": { description: "data contains uploadId, method, url, fields, expiresAt and completePath. Append all fields, then file last. Exact-size POST policy is enforced by MinIO." }, "413": { description: "Invalid or excessive size" }, "503": { description: "S3 storage unavailable" }, ...errorResponses },
+      },
+    },
+    "/upload/{uploadId}/complete": {
+      post: {
+        tags: ["Upload"], summary: "Claim an owned uploaded object and perform dry-run analysis",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "uploadId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, compactReportParameter],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["name"], properties: { name: { type: "string" }, tolerance: { type: "number", minimum: 0, exclusiveMinimum: true }, sourceCrs: { type: "string", example: "EPSG:32639" } } } } } },
+        responses: { "201": { description: "Existing dry-run response; original and normalized snapshots persisted" }, "404": { description: "Upload not found or not owned" }, "409": { description: "Upload already claimed" }, "410": { description: "Upload authorization expired" }, "422": { description: "Size mismatch or invalid GIS content" }, ...errorResponses },
+      },
+    },
     "/convert": {
       post: {
         tags: ["Conversion"],

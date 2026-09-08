@@ -1,3 +1,5 @@
+import { isObjectReference, objectReference, objectKey, putStoredFile, copyStoredFile } from "./object-storage.service";
+import os from "node:os";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
@@ -23,12 +25,14 @@ export interface ConversionResult {
   targetCRS: string;
   warnings: string[];
 }
-export const CONVERSION_ROOT = path.resolve("uploads/conversions");
+export const CONVERSION_ROOT = process.env.STORAGE_DRIVER === "s3" ? path.join(os.tmpdir(), "snapgis-conversions") : path.resolve("uploads/conversions");
 export const SYNC_CONVERSION_BYTES = 5 * 1024 * 1024;
 export const MAX_CONVERSION_MB = 250;
 export const CONVERSION_RETENTION_SECONDS = 24 * 60 * 60;
 export const conversionExtension = (format: ConversionFormat) =>
   format === "shapefile" ? "zip" : format;
+export const conversionObjectKey = (task: ConversionTask, name: string) => `temporary/conversions/${objectKey(task.userId, task.id, 'conversion', name)}`;
+export const conversionStoredOutput = (task: ConversionTask) => objectReference(conversionObjectKey(task, `converted.${conversionExtension(task.targetFormat)}`));
 export const conversionOutput = (task: ConversionTask) =>
   path.join(
     task.directory,
@@ -282,7 +286,18 @@ export const processConversionJob = async (
   task: ConversionTask,
   convert = runConversion,
 ): Promise<ConversionJobResult> => {
+  let localDirectory: string | undefined;
   try {
+    if (isObjectReference(task.source)) {
+      const created = await createConversionDirectory();
+      localDirectory = created.directory;
+      const source = path.join(localDirectory, `input.${conversionExtension(task.inputFormat)}`);
+      await copyStoredFile(task.source, source, MAX_CONVERSION_MB * 1024 * 1024);
+      const local = { ...task, source, directory: localDirectory };
+      const result = await convert(local);
+      await putStoredFile(conversionObjectKey(task, `converted.${conversionExtension(task.targetFormat)}`), conversionOutput(local));
+      return { result };
+    }
     return { result: await convert(task) };
   } catch (error) {
     await removeConversion(task.directory).catch(() => {});
@@ -296,5 +311,8 @@ export const processConversionJob = async (
           error instanceof AppError ? error.message : "Conversion failed.",
       },
     };
+  } finally {
+    if (localDirectory) await removeConversion(localDirectory).catch(() => {});
+    // Queued object inputs remain available until the temporary-prefix lifecycle expires them.
   }
 };

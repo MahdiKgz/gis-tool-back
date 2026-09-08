@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { objectStorageEnabled, objectKey, putStoredFile, removeStoredFile } from "../services/object-storage.service";
+import { readGisFile } from "../services/gis-file.service";
 import { compactReport } from "../services/public-report.service";
 import { isCadFile, normalizedCadPath, parseCadSourceCrs } from "../services/cad-file.service";
 import fs from "node:fs/promises";
@@ -7,7 +10,7 @@ import {
   deleteAnalysis,
   saveAnalysis,
 } from "../services/analysis-store.service";
-import { analyzeGisFile } from "../services/dry-run.service";
+import { analyzeGeoJson } from "../services/dry-run.service";
 import { AppError } from "../middlewares/errorHandler";
 import { getAuthenticatedUserId } from "../middlewares/auth.middleware";
 import {
@@ -54,6 +57,7 @@ export const createUploadHandler = (
   async (req: Request, res: Response, next: NextFunction) => {
     let analysisId: string | null = null;
     let persistenceComplete = false;
+    const storedObjects: string[] = [];
     try {
       if (!req.file) {
         throw new AppError(400, "No file was uploaded", "FILE_REQUIRED");
@@ -78,7 +82,9 @@ export const createUploadHandler = (
       );
 
       const sourceCrs = isCadFile(req.file.originalname) ? parseCadSourceCrs(req.body?.sourceCrs) : undefined;
-      const jobData = {
+      const id = randomUUID();
+      const jobData: import("../types/gis-job").GisJobData = {
+        ownerId: userId,
         ...(sourceCrs ? { sourceCrs } : {}),
         fileName: req.file.filename,
         originalName: req.file.originalname,
@@ -86,13 +92,17 @@ export const createUploadHandler = (
         size: req.file.size,
         tolerance,
       };
-      const report = await analyzeGisFile(
-        filePath,
-        req.file.originalname,
-        { toleranceMillimeters: tolerance },
-        sourceCrs ? { sourceCrs } : undefined,
-      );
-      const analysis = await saveAnalysis(jobData, report, undefined, userId);
+      const geojson = await readGisFile(filePath, req.file.originalname, sourceCrs ? { sourceCrs } : undefined);
+      const report = analyzeGeoJson(geojson, { toleranceMillimeters: tolerance });
+      if (objectStorageEnabled()) {
+        jobData.originalObject = await putStoredFile(objectKey(userId, id, 'original', req.file.originalname), filePath, req.file.mimetype);
+        storedObjects.push(jobData.originalObject);
+        const normalized = normalizedCadPath(filePath);
+        await fs.writeFile(normalized, JSON.stringify(geojson));
+        jobData.filePath = await putStoredFile(objectKey(userId, id, 'normalized', 'input.geojson'), normalized, 'application/geo+json');
+        storedObjects.push(jobData.filePath);
+      }
+      const analysis = await saveAnalysis(jobData, report, undefined, userId, id);
       analysisId = analysis.id;
       await dependencies.createRecord({
         id: analysis.id,
@@ -100,12 +110,16 @@ export const createUploadHandler = (
         name,
         originalName: req.file.originalname,
         storedFileName: req.file.filename,
-        storagePath: filePath,
+        storagePath: jobData.originalObject ?? filePath,
         mimeType: req.file.mimetype || "application/octet-stream",
         sizeInBytes: req.file.size,
         identifiedIssues: report.summary.issuesFound,
       });
       persistenceComplete = true;
+      if (objectStorageEnabled()) {
+        await fs.rm(filePath, { force: true }).catch(() => {});
+        await fs.rm(normalizedCadPath(filePath), { force: true }).catch(() => {});
+      }
 
       console.log(
         `🔎 [SnapGIS] Dry run ${analysis.id} completed | ` +
@@ -133,6 +147,7 @@ export const createUploadHandler = (
       });
     } catch (err) {
       if (!persistenceComplete) {
+        await Promise.allSettled(storedObjects.map(removeStoredFile));
         if (analysisId) {
           await Promise.allSettled([
             deleteAnalysis(analysisId),
@@ -140,7 +155,7 @@ export const createUploadHandler = (
           ]);
         }
         if (req.file) {
-          if (isCadFile(req.file.originalname)) {
+          if (isCadFile(req.file.originalname) || objectStorageEnabled()) {
             await fs.rm(normalizedCadPath(path.resolve(req.file.path)), { force: true }).catch(() => {});
           }
           await fs.rm(path.resolve(req.file.path), { force: true }).catch(() => {

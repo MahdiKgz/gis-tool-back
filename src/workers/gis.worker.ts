@@ -1,4 +1,6 @@
 // @ts-nocheck
+import os from "node:os";
+import { isObjectReference, storedStat, objectKey, putStoredFile, removeStoredFile } from "../services/object-storage.service";
 import { Worker, Job } from "bullmq";
 import { redisConnection } from "../services/queue.service";
 import path from "path";
@@ -831,8 +833,7 @@ export const gisWorker = new Worker(
 
     await cancellationCheckpoint();
 
-    if (!fs.existsSync(filePath))
-      throw new Error(`File not found: ${filePath}`);
+    await storedStat(filePath);
 
     const ext = path.extname(originalName).toLowerCase();
     await job.updateProgress(createHealingProgress(10, "parsing"));
@@ -1344,20 +1345,32 @@ export const gisWorker = new Worker(
     const optimizedGeojson = prepareOutputCoordinates(geojson, 9);
     optimizedGeojson.features.push(...quarantinedFeatures);
 
-    const outputDir = path.join(__dirname, "../../uploads/cleaned_files");
+    const remote = isObjectReference(filePath);
+    const outputDir = remote ? fs.mkdtempSync(path.join(os.tmpdir(), "snapgis-healing-")) : path.join(__dirname, "../../uploads/cleaned_files");
     if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
     const outputFileName = `cleaned-${fileName.replace(ext, ".geojson")}`;
-    const outputFilePath = path.join(outputDir, outputFileName);
-    await cancellationCheckpoint();
-    fs.writeFileSync(outputFilePath, JSON.stringify(optimizedGeojson));
-
-    if (await isHealingCancellationRequested(jobId)) {
-      fs.rmSync(outputFilePath, { force: true });
+    let outputFilePath = path.join(outputDir, outputFileName);
+    let newSize: number;
+    try {
       await cancellationCheckpoint();
-    }
+      fs.writeFileSync(outputFilePath, JSON.stringify(optimizedGeojson));
 
-    const newSize = fs.statSync(outputFilePath).size;
+      if (await isHealingCancellationRequested(jobId)) {
+        fs.rmSync(outputFilePath, { force: true });
+        await cancellationCheckpoint();
+      }
+
+      newSize = fs.statSync(outputFilePath).size;
+      if (remote) {
+        if (!job.data.ownerId) throw new Error('Object storage job has no owner');
+        outputFilePath = await putStoredFile(objectKey(job.data.ownerId, jobId, 'healed', outputFileName), outputFilePath, 'application/geo+json');
+        if (await isHealingCancellationRequested(jobId)) {
+          await removeStoredFile(outputFilePath);
+          await cancellationCheckpoint();
+        }
+      }
+    } finally { if (remote) fs.rmSync(outputDir, { recursive: true, force: true }); }
     await job.updateProgress(
       createHealingProgress(100, "report-generation", {
         gap: gapsFound,
@@ -1488,7 +1501,7 @@ export const gisWorker = new Worker(
       appliedNearDuplicateMinIoU: effectiveNearDuplicateMinIoU,
       originalSizeInBytes: size,
       optimizedSizeInBytes: newSize,
-      downloadPath: `/uploads/cleaned_files/${outputFileName}`,
+      downloadPath: `/api/heal/${jobId}/download`,
       outputFileName,
       outputFilePath,
     };

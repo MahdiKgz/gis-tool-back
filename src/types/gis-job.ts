@@ -5,6 +5,8 @@ export interface GisJobData {
   size: number;
   tolerance: number;
   sourceCrs?: string;
+  originalObject?: string;
+  ownerId?: string;
   overlapThresholdRatio?: number;
   nearDuplicateMaxOffsetMeters?: number;
   nearDuplicateMinIoU?: number;

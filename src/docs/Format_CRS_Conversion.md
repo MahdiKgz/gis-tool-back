@@ -127,3 +127,5 @@ the conversion owner; queued files have the existing 24-hour retention.
 The frontend export dialog is available on map-result download and in the file
 management detail dialog. It shows the known source CRS and lets users select a
 format and target EPSG; no geometry is downloaded/re-uploaded to request conversion.
+
+In S3 mode, queued conversion sources and outputs live under `temporary/conversions/`; workers hydrate a private temporary workspace. Binary download and result-header contracts are unchanged. See [Object Storage](Object_Storage.md).

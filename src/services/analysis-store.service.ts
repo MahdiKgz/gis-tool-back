@@ -1,3 +1,5 @@
+import { database } from "./database.service";
+import { objectStorageEnabled } from "./object-storage.service";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -54,6 +56,11 @@ const analysisPath = (id: string, storeDirectory: string): string => {
   return path.join(storeDirectory, `${id}.json`);
 };
 
+export const analysisDatabaseData = (record: StoredAnalysis) => {
+  const { report, ...metadata } = record;
+  return { payload: JSON.stringify(metadata), report: JSON.stringify(report) };
+};
+
 const normalizeRecord = (record: StoredAnalysis): StoredAnalysis => ({
   ...record,
   ownerId: record.ownerId ?? null,
@@ -107,6 +114,17 @@ const updateAnalysis = async (
   storeDirectory: string,
 ): Promise<StoredAnalysis | null> =>
   withAnalysisLock(id, async () => {
+    analysisPath(id, storeDirectory);
+    if (objectStorageEnabled() && storeDirectory === DEFAULT_STORE_DIRECTORY) {
+      return database.$transaction(async tx => {
+        const rows = await tx.$queryRaw<{ payload: StoredAnalysis; report: DryRunReport }[]>`SELECT payload, report FROM analyses WHERE id = ${id}::uuid FOR UPDATE`;
+        if (!rows[0]) return null;
+        const updated = normalizeRecord(update(normalizeRecord({ ...rows[0].payload, report: rows[0].report })));
+        const { report: _report, ...metadata } = updated;
+        await tx.$executeRaw`UPDATE analyses SET payload = ${JSON.stringify(metadata)}::jsonb WHERE id = ${id}::uuid`;
+        return updated;
+      }, { timeout: 30000 });
+    }
     const current = await getAnalysis(id, storeDirectory);
     if (!current) return null;
     const updated = normalizeRecord(update(current));
@@ -119,9 +137,10 @@ export const saveAnalysis = async (
   report: DryRunReport,
   storeDirectory = DEFAULT_STORE_DIRECTORY,
   ownerId: string | null = null,
+  id = randomUUID(),
 ): Promise<StoredAnalysis> => {
   const record: StoredAnalysis = {
-    id: randomUUID(),
+    id,
     ownerId,
     createdAt: new Date().toISOString(),
     queuedAt: null,
@@ -137,6 +156,12 @@ export const saveAnalysis = async (
     jobData,
     report,
   };
+  analysisPath(record.id, storeDirectory);
+  if (objectStorageEnabled() && storeDirectory === DEFAULT_STORE_DIRECTORY) {
+    const data = analysisDatabaseData(record);
+    await database.$executeRaw`INSERT INTO analyses (id, payload, report) VALUES (${record.id}::uuid, ${data.payload}::jsonb, ${data.report}::jsonb)`;
+    return record;
+  }
   await fs.mkdir(storeDirectory, { recursive: true });
   await fs.writeFile(
     analysisPath(record.id, storeDirectory),
@@ -150,6 +175,11 @@ export const getAnalysis = async (
   id: string,
   storeDirectory = DEFAULT_STORE_DIRECTORY,
 ): Promise<StoredAnalysis | null> => {
+  analysisPath(id, storeDirectory);
+  if (objectStorageEnabled() && storeDirectory === DEFAULT_STORE_DIRECTORY) {
+    const row = await database.analysis.findUnique({ where: { id } });
+    return row ? normalizeRecord({ ...(row.payload as unknown as StoredAnalysis), report: row.report as unknown as DryRunReport }) : null;
+  }
   let contents: string;
   try {
     contents = await fs.readFile(analysisPath(id, storeDirectory), "utf8");
@@ -166,6 +196,10 @@ export const deleteAnalysis = async (
   id: string,
   storeDirectory = DEFAULT_STORE_DIRECTORY,
 ): Promise<void> => {
+  analysisPath(id, storeDirectory);
+  if (objectStorageEnabled() && storeDirectory === DEFAULT_STORE_DIRECTORY) {
+    await database.analysis.deleteMany({ where: { id } }); return;
+  }
   await fs.rm(analysisPath(id, storeDirectory), { force: true });
 };
 

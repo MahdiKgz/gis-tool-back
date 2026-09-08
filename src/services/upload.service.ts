@@ -1,3 +1,5 @@
+import os from "node:os";
+import { objectStorageEnabled } from "./object-storage.service";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -11,7 +13,7 @@ interface MulterOptions {
 export const createUploader = (options: MulterOptions) => {
   const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-      const uploadDir = path.resolve(options.destination);
+      const uploadDir = objectStorageEnabled() ? path.join(os.tmpdir(), "snapgis-intake") : path.resolve(options.destination);
 
       if (!fs.existsSync(uploadDir)) {
         fs.mkdirSync(uploadDir, { recursive: true });

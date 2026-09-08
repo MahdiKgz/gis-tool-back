@@ -1,3 +1,4 @@
+import { isObjectReference, materializeStoredFile } from "./object-storage.service";
 import { isCadFile, readCadFile } from "./cad-file.service";
 
 import fs from "node:fs/promises";
@@ -46,6 +47,12 @@ export const readGisFile = async (
   originalName: string,
   importOptions?: { sourceCrs?: string },
 ): Promise<unknown> => {
+  if (isObjectReference(filePath)) {
+    const normalizedName = filePath.endsWith(".geojson") ? "input.geojson" : originalName;
+    const local = await materializeStoredFile(filePath, normalizedName);
+    try { return await readGisFile(local.filePath, normalizedName, importOptions); }
+    finally { await local.cleanup(); }
+  }
   const extension = path.extname(originalName).toLowerCase();
 
   if (isCadFile(originalName)) return readCadFile(filePath, importOptions?.sourceCrs);

@@ -1,3 +1,4 @@
+import { isObjectReference, objectLocation } from "./object-storage.service";
 import path from "node:path";
 import { StoredAnalysis, StoredHealResult } from "./analysis-store.service";
 
@@ -65,6 +66,11 @@ export const resolveHealedOutput = (
 ): { filePath: string; fileName: string } | null => {
   const result = analysis.healResult;
   if (!result || typeof result.outputFilePath !== "string") return null;
+  if (isObjectReference(result.outputFilePath)) {
+    const { Key } = objectLocation(result.outputFilePath);
+    if (!analysis.ownerId || !Key.startsWith(`${analysis.ownerId}/${analysis.id}/healed/`)) return null;
+    return { filePath: result.outputFilePath, fileName: path.basename(result.outputFileName ?? Key) };
+  }
   const filePath = path.resolve(result.outputFilePath);
   const relativePath = path.relative(CLEANED_OUTPUT_DIRECTORY, filePath);
   if (

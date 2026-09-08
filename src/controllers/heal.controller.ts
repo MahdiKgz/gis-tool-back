@@ -1,4 +1,4 @@
-import fs from "node:fs/promises";
+import { storedStat } from "../services/object-storage.service";
 import { NextFunction, Request, Response } from "express";
 import {
   getAnalysis,
@@ -66,8 +66,9 @@ export const healAnalyzedFile = async (
     }
 
     try {
-      await fs.access(analysis.jobData.filePath);
-    } catch {
+      await storedStat(analysis.jobData.filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       throw new AppError(
         410,
         "The uploaded source file is no longer available",

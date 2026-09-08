@@ -1,0 +1,142 @@
+import type { ConversionTask } from './conversion.service';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+
+const integration = process.env.STORAGE_INTEGRATION === '1' ? test : test.skip;
+integration('MinIO: private bounded direct upload, owned analysis/healing, downloads, conversions and deletion', async t => {
+  process.env.STORAGE_DRIVER = 's3';
+  const storage = await import('./object-storage.service');
+  const { database } = await import('./database.service');
+  const { createAccessToken } = await import('./token.service');
+  const { getAnalysis, markAnalysisCompleted, markAnalysisProgress, saveManualReviewDecision } = await import('./analysis-store.service');
+  const { router: uploads } = await import('../routes/upload.route');
+  const { router: files } = await import('../routes/file.route');
+  const { requireAuthentication } = await import('../middlewares/auth.middleware');
+  const { previewHealedOutput, previewOriginalInput, downloadHealedOutput } = await import('../controllers/heal-status.controller');
+  const { globalErrorHandler } = await import('../middlewares/errorHandler');
+  const { createConversionHandlers } = await import('../controllers/conversion.controller');
+  const conversion = await import('./conversion.service');
+  const express = (await import('express')).default;
+  const owner = await database.user.create({ data: { name: 'Storage integration fixture', phone: `t${randomUUID().slice(0, 15)}`, passwordHash: 'not-a-login' } });
+  const headers = { Authorization: `Bearer ${createAccessToken({ id: owner.id, roles: ['user'] })}` };
+  const other = { Authorization: `Bearer ${createAccessToken({ id: randomUUID(), roles: ['user'] })}` };
+  const objects = new Set<string>();
+  const analysisIds = new Set<string>();
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'snapgis-storage-test-'));
+  const app = express(); app.use(express.json()); app.use('/api/upload', uploads); app.use('/api/files', files);
+  app.get('/api/heal/:jobId/original', requireAuthentication, previewOriginalInput);
+  app.get('/api/heal/:jobId/output', requireAuthentication, previewHealedOutput);
+  app.get('/api/heal/:jobId/download', requireAuthentication, downloadHealedOutput);
+  const tasks = new Map<string, ConversionTask>();
+  const results = new Map<string, import('./conversion.service').ConversionResult>();
+  const handlers = createConversionHandlers({ convert: conversion.runConversion, enqueue: async task => { tasks.set(task.id, task); }, getJob: async id => tasks.has(id) ? { data: tasks.get(id)!, state: results.has(id) ? 'completed' : 'waiting', ...(results.has(id) ? { result: results.get(id)! } : {}) } : null });
+  app.post('/api/heal/:jobId/export', requireAuthentication, handlers.exportHealed);
+  app.get('/api/convert/:id/download', requireAuthentication, handlers.download);
+  app.use(globalErrorHandler);
+  const server = await new Promise<import('node:http').Server>(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+  const base = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`;
+  t.after(async () => {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    for (const id of analysisIds) await database.analysis.deleteMany({ where: { id } });
+    await database.uploadedFile.deleteMany({ where: { userId: owner.id } });
+    await database.storageUpload.deleteMany({ where: { userId: owner.id } });
+    await database.user.delete({ where: { id: owner.id } });
+    await Promise.allSettled([...objects].map(storage.removeStoredFile));
+    await fs.rm(workspace, { recursive: true, force: true });
+    await database.$disconnect();
+    const { redisConnection, gisQueue } = await import('./queue.service');
+    await gisQueue.close(); await redisConnection.quit();
+  });
+  const bull = require('bullmq');
+  let processJob!: (job: any) => Promise<any>;
+  const bullPath = require.resolve('bullmq');
+  const previousBull = require.cache[bullPath]!.exports;
+  require.cache[bullPath]!.exports = { ...bull, Worker: class { constructor(_name: string, processor: typeof processJob) { processJob = processor; } on() { return this; } } };
+  try { require('../workers/gis.worker'); } finally { require.cache[bullPath]!.exports = previousBull; }
+
+  for (const format of ['geojson', 'dwg', 'dgn']) {
+    await t.test(format, async () => {
+      const bytes = format === 'geojson' ? Buffer.from(JSON.stringify({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: { name: 'parcel' }, geometry: { type: 'Polygon', coordinates: [[[51,35],[51.01,35],[51.01,35.01],[51,35.01],[51,35]]] } }] })) : await fs.readFile(`src/test-data/cad/projected-parcel.${format}`);
+      const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
+      let response = await fetch(`${base}/api/upload/presign`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ fileName: `parcel.${format}`, size: bytes.length }) });
+      assert.equal(response.status, 201);
+      const post = (await response.json() as any).data;
+      objects.add(storage.objectReference(post.fields.key));
+      const form = (content: Uint8Array) => { const f = new FormData(); for (const [key, value] of Object.entries(post.fields)) f.set(key, String(value)); f.set('file', new Blob([Uint8Array.from(content)]), `parcel.${format}`); return f; };
+      assert.equal((await fetch(post.url, { method: 'POST', body: form(Buffer.concat([bytes, Buffer.from('oversize')])) })).ok, false);
+      assert.equal((await fetch(post.url, { method: 'POST', body: form(bytes) })).ok, true);
+      assert.equal((await fetch(`${base}${post.completePath}`, { method: 'POST', headers: { ...other, 'Content-Type': 'application/json' }, body: '{}' })).status, 404);
+      response = await fetch(`${base}${post.completePath}?report=compact`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ name: 'Storage integration parcel', sourceCrs: 'EPSG:32639', tolerance: 25 }) });
+      const body = await response.json() as any;
+      assert.equal(response.status, 201, JSON.stringify(body));
+      const id = body.data.jobId; analysisIds.add(id);
+      const analysis = (await getAnalysis(id))!;
+      objects.add(analysis.jobData.filePath); objects.add(analysis.jobData.originalObject!);
+      assert.ok(analysis.jobData.filePath.startsWith('s3://'));
+      assert.equal((await fetch(`${base}${post.completePath}`, { method: 'POST', headers: jsonHeaders, body: '{}' })).status, 409);
+      assert.equal((await fetch(`${base}/api/heal/${id}/original`, { headers: other })).status, 404);
+      const originalResponse = await fetch(`${base}/api/heal/${id}/original`, { headers, redirect: 'manual' });
+      assert.equal(originalResponse.status, 302);
+      assert.ok((await (await fetch(originalResponse.headers.get('location')!)).json() as any).features.length > 0);
+      const unsigned = new URL(originalResponse.headers.get('location')!); unsigned.search = '';
+      assert.equal((await fetch(unsigned)).status, 403);
+      const healed = await processJob({ id, data: analysis.jobData, updateProgress: async () => {} });
+      objects.add(healed.outputFilePath);
+      assert.ok(healed.outputFilePath.startsWith('s3://'));
+      await markAnalysisCompleted(id, healed);
+      await Promise.all([markAnalysisProgress(id, 12), saveManualReviewDecision(id, 0, 'approved')]);
+      assert.equal((await getAnalysis(id))!.healStatus, 'completed');
+      assert.equal((await getAnalysis(id))!.reviewDecisions?.['0']?.action, 'approved');
+      assert.deepEqual((await getAnalysis(id))!.report, analysis.report);
+      const download = await fetch(`${base}/api/heal/${id}/download`, { headers, redirect: 'manual' });
+      assert.equal(download.status, 302);
+      const output = await fetch(download.headers.get('location')!);
+      assert.ok(output.headers.get('content-disposition')?.includes('attachment'));
+      assert.equal((await output.json() as any).type, 'FeatureCollection');
+      for (const targetFormat of ['geojson', 'shapefile', 'dxf']) {
+        const exported = await fetch(`${base}/api/heal/${id}/export`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ targetFormat, targetCRS: 'EPSG:32639' }) });
+        assert.equal(exported.status, 200, await (exported.ok ? Promise.resolve('') : exported.text()));
+        assert.ok((await exported.arrayBuffer()).byteLength > 0);
+      }
+      // Queued conversion uses a fresh worker directory and leaves its input object intact.
+      const source = path.join(workspace, `${id}.geojson`);
+      await storage.copyStoredFile(healed.outputFilePath, source);
+      const existing = await fs.readFile(source);
+      await assert.rejects(storage.copyStoredFile(healed.outputFilePath, source));
+      assert.deepEqual(await fs.readFile(source), existing);
+      const task: ConversionTask = { id: randomUUID(), userId: owner.id, directory: '', source: '', inputFormat: 'geojson', targetFormat: 'geojson', sourceCRS: 'EPSG:4326', targetCRS: 'EPSG:32639' };
+      task.source = await storage.putStoredFile(conversion.conversionObjectKey(task, 'input.geojson'), source);
+      objects.add(task.source); objects.add(conversion.conversionStoredOutput(task));
+      const result = await conversion.processConversionJob(task);
+      assert.ok(result.result, JSON.stringify(result));
+      assert.ok((await storage.storedStat(conversion.conversionStoredOutput(task))).size > 0);
+      assert.ok((await storage.storedStat(task.source)).size > 0);
+      if (format === 'geojson') {
+        const largeFile = path.join(workspace, 'large.geojson');
+        await fs.writeFile(largeFile, Buffer.concat([await fs.readFile(source), Buffer.alloc(6 * 1024 * 1024, 32)]));
+        await storage.putStoredFile(storage.objectLocation(healed.outputFilePath).Key, largeFile, 'application/geo+json');
+        const accepted = await fetch(`${base}/api/heal/${id}/export`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ targetFormat: 'geojson' }) });
+        assert.equal(accepted.status, 202);
+        const queuedId = (await accepted.json() as any).data.jobId;
+        const queued = tasks.get(queuedId)!;
+        assert.equal(queued.directory, '');
+        assert.ok(queued.source.startsWith('s3://'));
+        objects.add(queued.source); objects.add(conversion.conversionStoredOutput(queued));
+        const completed = await conversion.processConversionJob(queued);
+        assert.ok(completed.result, JSON.stringify(completed)); results.set(queuedId, completed.result!);
+        const downloaded = await fetch(`${base}/api/convert/${queuedId}/download`, { headers });
+        assert.equal(downloaded.status, 200);
+        assert.ok(downloaded.headers.get('x-conversion-result'));
+        assert.ok((await downloaded.json() as any).features.length > 0);
+      }
+      assert.equal((await fetch(`${base}/api/files/${id}`, { method: 'DELETE', headers: other })).status, 404);
+      assert.equal((await fetch(`${base}/api/files/${id}`, { method: 'DELETE', headers })).status, 204);
+      assert.equal(await getAnalysis(id), null);
+      await assert.rejects(storage.storedStat(healed.outputFilePath));
+    });
+  }
+});

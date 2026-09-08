@@ -1,3 +1,5 @@
+import { objectStorageEnabled, isObjectReference, storedStat, copyStoredFile, materializeStoredFile, putStoredFile } from "../services/object-storage.service";
+import { conversionObjectKey, conversionStoredOutput } from "../services/conversion.service";
 import { getStoredAnalysis } from "./heal-status.controller";
 import { resolveHealedOutput } from "../services/heal-result.service";
 import fs from "node:fs/promises";
@@ -65,8 +67,9 @@ const sendOutput = async (
   task: ConversionTask,
   result: ConversionResult,
 ) => {
-  const output = conversionOutput(task);
-  await fs.access(output).catch(() => {
+  const reference = isObjectReference(task.source) ? conversionStoredOutput(task) : conversionOutput(task);
+  await storedStat(reference).catch((error) => {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     throw new AppError(
       410,
       "The converted file has expired.",
@@ -82,11 +85,11 @@ const sendOutput = async (
     "Access-Control-Expose-Headers",
     "Content-Disposition, X-Conversion-Result",
   );
-  await new Promise<void>((resolve, reject) =>
-    res.download(output, path.basename(output), (error) =>
-      error ? reject(error) : resolve(),
-    ),
-  );
+  const local = await materializeStoredFile(reference, path.basename(conversionOutput(task)));
+  try {
+    await new Promise<void>((resolve, reject) =>
+      res.download(local.filePath, path.basename(local.filePath), error => error ? reject(error) : resolve()));
+  } finally { await local.cleanup(); }
 };
 
 export const createConversionHandlers = (deps: Dependencies = dependencies) => {
@@ -99,6 +102,10 @@ export const createConversionHandlers = (deps: Dependencies = dependencies) => {
   ) => {
     if (signal.aborted) throw new Error("Export request cancelled");
     if (size > SYNC_CONVERSION_BYTES) {
+      if (objectStorageEnabled()) {
+        task.source = await putStoredFile(conversionObjectKey(task, path.basename(task.source)), task.source);
+        task.directory = ''; // Queue payloads contain object references, never a machine-local workspace.
+      }
       await deps.enqueue(task);
       markQueued();
       res
@@ -155,7 +162,8 @@ export const createConversionHandlers = (deps: Dependencies = dependencies) => {
         ...req.body,
         sourceCRS: "EPSG:4326",
       });
-      const info = await fs.stat(output.filePath).catch(() => {
+      const info = await storedStat(output.filePath).catch((error) => {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         throw new AppError(
           410,
           "The healed output has expired.",
@@ -171,7 +179,7 @@ export const createConversionHandlers = (deps: Dependencies = dependencies) => {
       const created = await createConversionDirectory();
       directory = created.directory;
       const source = path.join(directory, "input.geojson");
-      await fs.copyFile(output.filePath, source);
+      await copyStoredFile(output.filePath, source, MAX_CONVERSION_MB * 1024 * 1024);
       const task: ConversionTask = { ...options, ...created, source, userId };
       await execute(task, info.size, res, abort.signal, () => {
         queued = true;
@@ -180,7 +188,7 @@ export const createConversionHandlers = (deps: Dependencies = dependencies) => {
       if (!res.headersSent) next(error);
     } finally {
       res.off("close", onClose);
-      if (!queued && directory)
+      if ((!queued || objectStorageEnabled()) && directory)
         await removeConversion(directory).catch(() => {});
     }
   };
@@ -213,7 +221,7 @@ export const createConversionHandlers = (deps: Dependencies = dependencies) => {
       if (!res.headersSent) next(error);
     } finally {
       res.off("close", onClose);
-      if (!queued && directory)
+      if ((!queued || objectStorageEnabled()) && directory)
         await removeConversion(directory).catch(() => {});
     }
   };

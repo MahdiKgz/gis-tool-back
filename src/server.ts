@@ -1,3 +1,4 @@
+import { assertStorageConfiguration } from "./services/object-storage.service";
 import "dotenv/config";
 import app from "./app";
 import { initCleanupCron } from "./services/cleanup.service";
@@ -16,6 +17,7 @@ const PORT = process.env.PORT || 3000;
 
 const bootstrap = async () => {
   getAccessTokenSecret();
+  assertStorageConfiguration();
   await initializeDatabase();
   await connectAuthRedis();
   const { gisWorker } = await import("./workers/gis.worker");

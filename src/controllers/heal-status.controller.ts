@@ -1,3 +1,4 @@
+import { storedStat, isObjectReference, signedDownload } from "../services/object-storage.service";
 import { issuePage } from "../services/public-report.service";
 import fs from "node:fs/promises";
 import { NextFunction, Request, Response } from "express";
@@ -374,13 +375,18 @@ export const previewOriginalInput = async (
       getAuthenticatedUserId(req),
     );
     try {
-      await fs.access(analysis.jobData.filePath);
-    } catch {
+      await storedStat(analysis.jobData.filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       throw new AppError(
         410,
         "The original input file is no longer available",
         "SOURCE_FILE_EXPIRED",
       );
+    }
+    if (isObjectReference(analysis.jobData.filePath)) {
+      res.setHeader("Cache-Control", "no-store");
+      res.redirect(302, await signedDownload(analysis.jobData.filePath)); return;
     }
     const geoJson = await readGisFile(
       analysis.jobData.filePath,
@@ -479,8 +485,9 @@ const getCompletedOutput = async (
     );
   }
   try {
-    await fs.access(output.filePath);
-  } catch {
+    await storedStat(output.filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     throw new AppError(
       410,
       "The healed output file is no longer available",
@@ -500,6 +507,7 @@ export const previewHealedOutput = async (
       req.params.jobId,
       getAuthenticatedUserId(req),
     );
+    if (isObjectReference(output.filePath)) { res.setHeader("Cache-Control", "no-store"); res.redirect(302, await signedDownload(output.filePath)); return; }
     res.type("application/geo+json");
     res.sendFile(output.filePath);
   } catch (error) {
@@ -517,6 +525,7 @@ export const downloadHealedOutput = async (
       req.params.jobId,
       getAuthenticatedUserId(req),
     );
+    if (isObjectReference(output.filePath)) { res.setHeader("Cache-Control", "no-store"); res.redirect(302, await signedDownload(output.filePath, output.fileName)); return; }
     res.download(output.filePath, output.fileName, (error) => {
       if (error && !res.headersSent) next(error);
     });

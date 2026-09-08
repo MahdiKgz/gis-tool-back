@@ -1,3 +1,4 @@
+import { isObjectReference, objectLocation, removeStoredFile } from "../services/object-storage.service";
 import { compactReport } from "../services/public-report.service";
 import { isCadFile, normalizedCadPath } from "../services/cad-file.service";
 import fs from "node:fs/promises";
@@ -65,7 +66,7 @@ const defaultDependencies: FileControllerDependencies = {
   deleteRecord: deleteUserUploadRecord,
   loadAnalysis: getAnalysis,
   removeAnalysis: deleteAnalysis,
-  removeFile: async (filePath) => fs.rm(filePath, { force: true }),
+  removeFile: removeStoredFile,
 };
 
 const parsePaginationInteger = (
@@ -316,6 +317,13 @@ export const createFileController = (
         );
       }
 
+      // Remove owned objects before deleting metadata so failed storage cleanup is retryable.
+      const references = new Set([record.storagePath, analysis?.jobData.filePath, analysis?.healResult?.outputFilePath]);
+      for (const reference of references) {
+        if (typeof reference !== 'string' || !isObjectReference(reference)) continue;
+        if (!objectLocation(reference).Key.startsWith(`${userId}/${id}/`)) throw new Error('Unowned object reference');
+        await dependencies.removeFile(reference);
+      }
       if (!(await dependencies.deleteRecord(id, userId))) {
         throw new AppError(404, "File not found", "FILE_NOT_FOUND");
       }
@@ -327,7 +335,7 @@ export const createFileController = (
         if (isCadFile(record.originalName)) cleanupTasks.push(dependencies.removeFile(normalizedCadPath(uploadPath)));
       }
       const healedOutput = analysis ? resolveHealedOutput(analysis) : null;
-      if (healedOutput)
+      if (healedOutput && !isObjectReference(healedOutput.filePath))
         cleanupTasks.push(dependencies.removeFile(healedOutput.filePath));
       const cleanupResults = await Promise.allSettled(cleanupTasks);
       if (cleanupResults.some((result) => result.status === "rejected")) {

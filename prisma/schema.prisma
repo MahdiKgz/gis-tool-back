@@ -40,3 +40,22 @@ model UploadedFile {
   @@index([userId, healStatus])
   @@map("uploaded_files")
 }
+
+model Analysis {
+  id String @id @db.Uuid
+  payload Json
+  report Json?
+  @@map("analyses")
+}
+
+model StorageUpload {
+  id String @id @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  key String
+  originalName String @map("original_name")
+  size Int
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  claimedAt DateTime? @map("claimed_at") @db.Timestamptz(6)
+  @@index([expiresAt])
+  @@map("storage_uploads")
+}

@@ -45,6 +45,8 @@
 
 ### Infrastructure
 
+-   [x] User-requested MinIO object storage: private owner/job original, normalized and healed objects; transactional PostgreSQL analysis/report metadata; object-backed queued conversion; owner-scoped 15-minute GET/POST signatures with exact-size upload policy; local Compose scoped credentials, lifecycle/TLS/backup guide, SHA-256 verified legacy migration, regression and real MinIO/CAD/export tests. See Object_Storage.md.
+
 -   [x] User-requested configurable healed-output download: owner-scoped server-side export to GeoJSON, Shapefile ZIP and DXF; fixed WGS84 source, selectable target EPSG, shared bounded sync/queue conversion, source preservation, API docs, unit checks and native HTTP integration including queued output and ownership.
 
 -   [x] User-requested CAD map response performance: opt-in compact upload/file reports, preserved geometry/counts and manual issue identities, owner-scoped paginated issue details (maximum 100/page), API documentation and projection/pagination/ownership regression tests. Analytical reports and healing input remain unchanged. See CAD_Map_Performance.md.
