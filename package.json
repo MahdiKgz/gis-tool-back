@@ -21,7 +21,8 @@
     "test:cad": "pnpm run test:compile && CAD_INTEGRATION=1 node --test dist-test/services/cad-upload.integration.test.js",
     "test:conversion": "pnpm run test:compile && CONVERSION_INTEGRATION=1 node --test --test-isolation=none dist-test/services/conversion*.test.js dist-test/controllers/conversion.controller*.test.js",
     "storage:migrate": "tsx scripts/migrate-object-storage.ts",
-    "test:storage": "pnpm run test:compile && STORAGE_INTEGRATION=1 node --env-file=.env --test dist-test/services/object-storage.integration.test.js"
+    "test:storage": "pnpm run test:compile && STORAGE_INTEGRATION=1 node --env-file=.env --test dist-test/services/object-storage.integration.test.js",
+    "test:business": "pnpm run test:compile && BUSINESS_INTEGRATION=1 node --env-file=.env --test dist-test/services/company.integration.test.js"
   },
   "keywords": [],
   "author": "",

@@ -16,6 +16,13 @@ model User {
   createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
   uploadedFiles UploadedFile[]
+  planCode PlanCode @default(starter) @map("plan_code")
+  ownedCompany Company? @relation("CompanyOwner")
+  companyMembership CompanyMember?
+  companyInvitations CompanyInvitation[]
+  uploadActivity UploadActivity[]
+  planAssignments PlanAssignment[] @relation("PlanTarget")
+  assignedPlans PlanAssignment[] @relation("PlanActor")
 
   @@map("users")
 }
@@ -58,4 +65,80 @@ model StorageUpload {
   claimedAt DateTime? @map("claimed_at") @db.Timestamptz(6)
   @@index([expiresAt])
   @@map("storage_uploads")
+}
+
+enum PlanCode {
+  starter
+  pro
+  advanced
+}
+enum CompanyInviteStatus {
+  pending
+  accepted
+  declined
+  revoked
+  expired
+}
+model Company {
+  id String @id @default(uuid()) @db.Uuid
+  ownerId String @unique @map("owner_id") @db.Uuid
+  name String @db.VarChar(150)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  owner User @relation("CompanyOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  members CompanyMember[]
+  invitations CompanyInvitation[]
+  activity UploadActivity[]
+  @@map("companies")
+}
+model CompanyMember {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  userId String @unique @map("user_id") @db.Uuid
+  joinedAt DateTime @default(now()) @map("joined_at") @db.Timestamptz(6)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([companyId])
+  @@map("company_members")
+}
+model CompanyInvitation {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  status CompanyInviteStatus @default(pending)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  respondedAt DateTime? @map("responded_at") @db.Timestamptz(6)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([companyId, status, expiresAt])
+  @@index([userId, status])
+  @@map("company_invitations")
+}
+model UploadActivity {
+  id String @id @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  companyId String? @map("company_id") @db.Uuid
+  sizeInBytes Int @map("size_in_bytes")
+  identifiedIssues Int @map("identified_issues")
+  healedIssues Int @default(0) @map("healed_issues")
+  healStatus String @default("dry-run-complete") @map("heal_status")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  @@index([companyId, userId])
+  @@index([userId, createdAt])
+  @@map("upload_activity")
+}
+model PlanAssignment {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  actorId String @map("actor_id") @db.Uuid
+  previousPlan PlanCode @map("previous_plan")
+  nextPlan PlanCode @map("next_plan")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  user User @relation("PlanTarget", fields: [userId], references: [id], onDelete: Cascade)
+  actor User @relation("PlanActor", fields: [actorId], references: [id], onDelete: Restrict)
+  @@index([userId, createdAt])
+  @@map("plan_assignments")
 }

@@ -1,3 +1,4 @@
+import { businessPaths } from "./business-openapi";
 const compactReportParameter = {
   name: "report", in: "query", required: false,
   schema: { type: "string", enum: ["compact"] },
@@ -20,6 +21,7 @@ export const openApiDocument = {
   },
   servers: [{ url: "/api", description: "Current server" }],
   tags: [
+    { name: "Business", description: "User plans, company membership and activity" },
     { name: "Conversion", description: "Standalone format and CRS conversion" },
     { name: "System", description: "Service health" },
     { name: "Authentication", description: "Account and session lifecycle" },
@@ -30,6 +32,7 @@ export const openApiDocument = {
     },
   ],
   paths: {
+    ...businessPaths,
     "/upload/presign": {
       post: {
         tags: ["Upload"], summary: "Authorize a direct MinIO multipart POST (15 minutes)",
@@ -859,7 +862,7 @@ export const openApiDocument = {
               plan: {
                 type: "object",
                 properties: {
-                  code: { type: "string", enum: ["free"] },
+                  code: { type: "string", enum: ["starter", "pro", "advanced"] },
                   name: { type: "string", example: "رایگان" },
                   expiresAt: {
                     type: "string",

@@ -1,3 +1,4 @@
+import { getUserPlan } from "../services/business-plan.service";
 import { isObjectReference, objectLocation, removeStoredFile } from "../services/object-storage.service";
 import { compactReport } from "../services/public-report.service";
 import { isCadFile, normalizedCadPath } from "../services/cad-file.service";
@@ -39,6 +40,7 @@ const UPLOAD_DIRECTORY = path.resolve("uploads/gis_files");
 type PublicFileStatus = HealStatus | "unavailable";
 
 interface FileControllerDependencies {
+  getPlan: typeof getUserPlan;
   getSummary: (userId: string) => Promise<UserUploadSummary>;
   listRecords: (
     userId: string,
@@ -59,6 +61,7 @@ interface FileControllerDependencies {
 }
 
 const defaultDependencies: FileControllerDependencies = {
+  getPlan: getUserPlan,
   getSummary: getUserUploadSummary,
   listRecords: listUserUploadRecords,
   findRecord: findUserUploadRecord,
@@ -194,16 +197,11 @@ export const createFileController = (
   ) => {
     try {
       const userId = getAuthenticatedUserId(req);
-      const usage = await dependencies.getSummary(userId);
+      const [usage, plan] = await Promise.all([dependencies.getSummary(userId), dependencies.getPlan(userId)]);
       res.status(200).json({
         success: true,
         data: {
-          plan: {
-            code: "free",
-            name: "رایگان",
-            expiresAt: null,
-            remainingDays: null,
-          },
+          plan,
           usage: {
             files: usage.fileCount,
             identifiedIssues: usage.identifiedIssues,

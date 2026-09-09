@@ -8,6 +8,7 @@ export interface UserRecord {
   passwordHash: string;
   roles: string[];
   createdAt: Date;
+  planCode: import("@prisma/client").PlanCode;
 }
 
 const mapUser = (user: User): UserRecord => ({
@@ -16,6 +17,7 @@ const mapUser = (user: User): UserRecord => ({
   phone: user.phone,
   passwordHash: user.passwordHash,
   roles: user.roles,
+  planCode: user.planCode,
   createdAt: user.createdAt,
 });
 

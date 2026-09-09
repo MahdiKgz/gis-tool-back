@@ -19,6 +19,7 @@ export interface PublicUser {
   phone: string;
   roles: string[];
   createdAt: string;
+  planCode: import("@prisma/client").PlanCode;
 }
 
 export interface AuthResult {
@@ -74,6 +75,7 @@ export const toPublicUser = (user: UserRecord): PublicUser => ({
   name: user.name,
   phone: user.phone,
   roles: user.roles,
+  planCode: user.planCode,
   createdAt: user.createdAt.toISOString(),
 });
 

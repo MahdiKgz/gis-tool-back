@@ -1,3 +1,4 @@
+import { router as businessRouter } from "./routes/business.route";
 import "dotenv/config";
 import express, { Application } from "express";
 import cors from "cors";
@@ -48,6 +49,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/upload", uploadRouter);
 app.use("/api/heal", healRouter);
 app.use("/api/files", fileRouter);
+app.use("/api/business", businessRouter);
 app.use("/api/convert", conversionRouter);
 
 app.get(["/health", "/api/health"], (_req, res) => {

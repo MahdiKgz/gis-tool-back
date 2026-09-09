@@ -1,3 +1,4 @@
+import { planByCode } from "../services/business-plan.service";
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
@@ -75,6 +76,7 @@ const nextCapture = () => {
 const dependencies = (
   overrides: Partial<Parameters<typeof createFileController>[0]> = {},
 ): Parameters<typeof createFileController>[0] => ({
+  getPlan: async () => ({ ...planByCode("starter"), expiresAt: null, remainingDays: null }),
   getSummary: async () => ({
     fileCount: 0,
     identifiedIssues: 0,
@@ -90,7 +92,7 @@ const dependencies = (
   ...overrides,
 });
 
-test("returns the authenticated user's free-plan dashboard summary", async () => {
+test("returns the authenticated user's assigned-plan dashboard summary", async () => {
   let requestedUserId: string | undefined;
   const controller = createFileController(
     dependencies({
@@ -116,9 +118,8 @@ test("returns the authenticated user's free-plan dashboard summary", async () =>
     success: true,
     data: {
       plan: {
-        code: "free",
-        name: "رایگان",
-        expiresAt: null,
+        ...planByCode("starter"),
+                expiresAt: null,
         remainingDays: null,
       },
       usage: { files: 7, identifiedIssues: 24, healedIssues: 18 },

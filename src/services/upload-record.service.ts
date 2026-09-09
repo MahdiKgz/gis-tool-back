@@ -1,3 +1,4 @@
+import { activityCompanyId } from "./company.service";
 import type { UploadedFile } from "@prisma/client";
 import type { HealStatus } from "./analysis-store.service";
 import { buildUploadWhere, type FileListFilters } from "./file-list-filters";
@@ -28,33 +29,55 @@ export interface UserUploadSummary {
 
 export const createUploadRecord = (
   input: CreateUploadRecordInput,
-): Promise<UploadedFile> => database.uploadedFile.create({ data: input });
+): Promise<UploadedFile> =>
+  database.$transaction(async (tx) => {
+    // Serialize membership changes and upload attribution for this user.
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${input.userId}::uuid FOR UPDATE`;
+    const companyId = await activityCompanyId(tx, input.userId);
+    const record = await tx.uploadedFile.create({ data: input });
+    await tx.uploadActivity.create({
+      data: {
+        id: record.id,
+        userId: record.userId,
+        companyId,
+        sizeInBytes: record.sizeInBytes,
+        identifiedIssues: record.identifiedIssues,
+        createdAt: record.createdAt,
+      },
+    });
+    return record;
+  });
 
 export const deleteUploadRecord = async (id: string): Promise<void> => {
-  await database.uploadedFile.deleteMany({ where: { id } });
+  await database.$transaction([
+    database.uploadActivity.deleteMany({ where: { id } }),
+    database.uploadedFile.deleteMany({ where: { id } }),
+  ]);
 };
 
 export const findUploadRecord = (id: string): Promise<UploadedFile | null> =>
   database.uploadedFile.findUnique({ where: { id } });
 
-export const createUploadRecordLister = (client = database) => async (
-  userId: string,
-  skip: number,
-  limit: number,
-  filters: FileListFilters = {},
-): Promise<UploadRecordPage> => {
-  const where = buildUploadWhere(userId, filters);
-  const [records, total] = await client.$transaction([
-    client.uploadedFile.findMany({
-      where,
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      skip,
-      take: limit,
-    }),
-    client.uploadedFile.count({ where }),
-  ]);
-  return { records, total };
-};
+export const createUploadRecordLister =
+  (client = database) =>
+  async (
+    userId: string,
+    skip: number,
+    limit: number,
+    filters: FileListFilters = {},
+  ): Promise<UploadRecordPage> => {
+    const where = buildUploadWhere(userId, filters);
+    const [records, total] = await client.$transaction([
+      client.uploadedFile.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip,
+        take: limit,
+      }),
+      client.uploadedFile.count({ where }),
+    ]);
+    return { records, total };
+  };
 
 export const listUserUploadRecords = createUploadRecordLister();
 
@@ -81,10 +104,15 @@ export const deleteUserUploadRecord = async (
   id: string,
   userId: string,
 ): Promise<boolean> => {
-  const result = await database.uploadedFile.deleteMany({
-    where: { id, userId },
+  return database.$transaction(async (tx) => {
+    const result = await tx.uploadedFile.deleteMany({ where: { id, userId } });
+    if (result.count)
+      await tx.uploadActivity.updateMany({
+        where: { id, userId },
+        data: { deletedAt: new Date() },
+      });
+    return result.count > 0;
   });
-  return result.count > 0;
 };
 
 export const updateUploadHealingMetrics = async (
@@ -92,13 +120,14 @@ export const updateUploadHealingMetrics = async (
   healStatus: HealStatus,
   healedIssues?: number,
 ): Promise<void> => {
-  await database.uploadedFile.updateMany({
-    where: { id },
-    data: {
-      healStatus,
-      ...(healedIssues === undefined ? {} : { healedIssues }),
-    },
-  });
+  const data = {
+    healStatus,
+    ...(healedIssues === undefined ? {} : { healedIssues }),
+  };
+  await database.$transaction([
+    database.uploadedFile.updateMany({ where: { id }, data }),
+    database.uploadActivity.updateMany({ where: { id }, data }),
+  ]);
 };
 
 export const getUserUploadSummary = async (

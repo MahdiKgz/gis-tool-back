@@ -233,3 +233,10 @@
 -   [ ] GeoJSON samples
 -   [ ] No regression
 -   [ ] Documentation updated
+
+# Requested business layer — September 2026
+
+- [x] Persist starter/pro/advanced plans with admin-only audited assignment.
+- [x] Company owner plus three colleagues, direct addition and in-app invitations.
+- [x] Transactional capacity, membership permissions and retained upload activity.
+- [x] Company statistics, admin plan UI, API documentation and regression tests.
