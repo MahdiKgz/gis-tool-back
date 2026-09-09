@@ -15,11 +15,14 @@ team statistics and add up to three colleagues, in addition to themselves.
 
 1. Look up a registered account using an exact Iranian mobile number (Persian and
    Arabic digits are supported). Only name, phone and account creation date appear.
-2. Review that card and explicitly choose either direct addition or an invitation.
-3. Direct addition activates membership on manager confirmation. Invitations appear
+2. Review that card and confirm sending an invitation.
+3. Membership activates only after the colleague accepts. Invitations appear
    in the colleague's dashboard with a navigation badge and accept/decline actions.
    No SMS or email is sent. Pending invitations reserve a seat for seven days;
    expiry releases it without a scheduled job. Owners can revoke invitations.
+
+Legacy `mode: "direct"` requests are rejected with 400; omitted mode (or legacy
+`mode: "invite"`) creates only an invitation. Existing memberships are preserved.
 
 A user can belong to only one company and cannot own a company while also being
 an employee elsewhere. Company row locks serialize capacity changes; user row
@@ -67,7 +70,7 @@ a Bearer token. JSON responses use `{success: true, data}`.
 | GET | /company | Owner; team, seats, aggregate and per-member metrics |
 | PATCH | /company | Owner; `{name}` (2–150 characters) |
 | POST | /company/lookup | Active owner; `{phone}`; rate limited |
-| POST | /company/members | Active owner; `{userId, mode: "direct" | "invite"}` |
+| POST | /company/members | Active owner; `{userId}` |
 | DELETE | /company/members/:userId | Owner removes member, or member leaves |
 | DELETE | /company/invitations/:invitationId | Owner revokes pending invitation |
 | POST | /invitations/:invitationId/respond | Invitee; `{action: "accept" | "decline"}` |

@@ -285,12 +285,12 @@ export const lookupColleague = async (ownerId: string, value: unknown) => {
 export const addColleague = async (
   ownerId: string,
   userId: string,
-  mode: unknown,
+  mode: unknown = "invite",
 ) => {
-  if (mode !== "direct" && mode !== "invite")
+  if (mode !== "invite")
     throw new AppError(
       400,
-      "روش افزودن همکار معتبر نیست.",
+      "عضویت فقط پس از پذیرش دعوت توسط همکار فعال می‌شود.",
       "INVALID_MEMBER_MODE",
     );
   return database.$transaction(async (tx) => {
@@ -322,16 +322,6 @@ export const addColleague = async (
         "ظرفیت سه همکار تکمیل است؛ دعوت‌های در انتظار نیز ظرفیت رزرو می‌کنند.",
         "COMPANY_SEATS_FULL",
       );
-    if (mode === "direct") {
-      const member = await tx.companyMember.create({
-        data: { companyId: company.id, userId },
-      });
-      await tx.companyInvitation.updateMany({
-        where: { userId, status: "pending" },
-        data: { status: "revoked", respondedAt: new Date() },
-      });
-      return { mode, id: member.id };
-    }
     const invitation = await tx.companyInvitation.create({
       data: {
         companyId: company.id,

@@ -26,3 +26,10 @@ test("company input validation supports Persian phone digits and rejects unsafe 
   for (const value of ["1", "'; DROP TABLE users", [], null])
     assert.throws(() => parseBusinessId(value));
 });
+
+import { addColleague } from "./company.service";
+test("rejects legacy direct-add requests before touching membership storage", async () => {
+  await assert.rejects(addColleague("owner", "colleague", "direct"), {
+    code: "INVALID_MEMBER_MODE",
+  });
+});

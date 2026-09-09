@@ -107,19 +107,19 @@ export const businessPaths = {
   "/business/company/members": {
     post: {
       ...operation(
-        "Active owner: directly add or invite a reviewed colleague; pending invites reserve a seat for 7 days",
+        "Active owner: invite a reviewed colleague; membership requires invitee acceptance; pending invites reserve a seat for 7 days",
       ),
       requestBody: body(
         {
           userId: { type: "string", format: "uuid" },
-          mode: { type: "string", enum: ["direct", "invite"] },
         },
-        ["userId", "mode"],
+        ["userId"],
       ),
       responses: {
         ...responses,
         "201": {
-          description: "Created membership or invitation: data { id, mode }",
+          description:
+            "Created invitation: data { id, mode: invite }. Legacy direct-add requests are rejected.",
         },
       },
     },

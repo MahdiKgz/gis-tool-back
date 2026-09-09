@@ -132,13 +132,7 @@ test(
         const outcomes = await Promise.allSettled(
           members
             .slice(0, 4)
-            .map((user, i) =>
-              company.addColleague(
-                owner.id,
-                user.id,
-                i === 0 ? "direct" : "invite",
-              ),
-            ),
+            .map((user) => company.addColleague(owner.id, user.id, "invite")),
         );
         assert.equal(
           outcomes.filter((o) => o.status === "fulfilled").length,
@@ -159,9 +153,22 @@ test(
       },
     );
     await t.test(
-      "direct addition grants membership and keeps personal plan/history private",
+      "only invitee acceptance grants membership and keeps personal history private",
       async () => {
-        await company.addColleague(owner.id, members[0]!.id, "direct");
+        const invitation = await company.addColleague(owner.id, members[0]!.id);
+        assert.equal(
+          (await company.getBusinessContext(members[0]!.id)).company,
+          null,
+        );
+        await assert.rejects(
+          company.respondToInvitation(owner.id, invitation.id, "accept"),
+          errorCode("INVITATION_NOT_FOUND"),
+        );
+        await company.respondToInvitation(
+          members[0]!.id,
+          invitation.id,
+          "accept",
+        );
         const context = await company.getBusinessContext(members[0]!.id);
         assert.equal(context.plan.code, "starter");
         assert.equal(context.effectivePlan.code, "advanced");
@@ -182,7 +189,7 @@ test(
           errorCode("COMPANY_PLAN_REQUIRED"),
         );
         await assert.rejects(
-          company.addColleague(otherOwner.id, members[0]!.id, "direct"),
+          company.addColleague(otherOwner.id, members[0]!.id, "invite"),
           errorCode("COLLEAGUE_ALREADY_MEMBER"),
         );
         await assert.rejects(
@@ -302,7 +309,15 @@ test(
     await t.test(
       "downgrade suspends company entitlement without losing team or historical stats",
       async () => {
-        await company.addColleague(owner.id, members[3]!.id, "direct");
+        const membershipInvite = await company.addColleague(
+          owner.id,
+          members[3]!.id,
+        );
+        await company.respondToInvitation(
+          members[3]!.id,
+          membershipInvite.id,
+          "accept",
+        );
         const invite = await company.addColleague(
           owner.id,
           members[4]!.id,
@@ -319,7 +334,7 @@ test(
           errorCode("COMPANY_PLAN_REQUIRED"),
         );
         await assert.rejects(
-          company.addColleague(owner.id, members[5]!.id, "direct"),
+          company.addColleague(owner.id, members[5]!.id, "invite"),
           errorCode("COMPANY_PLAN_REQUIRED"),
         );
         await upload(members[3]!.id);
@@ -358,6 +373,25 @@ test(
             Authorization: `Bearer ${createAccessToken({ id: owner.id, roles: ["admin"] })}`,
             "Content-Type": "application/json",
           };
+          const direct = await fetch(`${url}/company/members`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ userId: members[5]!.id, mode: "direct" }),
+          });
+          assert.equal(direct.status, 400);
+          assert.equal((await direct.json()).code, "INVALID_MEMBER_MODE");
+          assert.equal(
+            await database.companyMember.count({
+              where: { userId: members[5]!.id },
+            }),
+            0,
+          );
+          assert.equal(
+            await database.companyInvitation.count({
+              where: { userId: members[5]!.id },
+            }),
+            0,
+          );
           assert.equal((await fetch(`${url}/plans`)).status, 200);
           assert.equal((await fetch(`${url}/me`)).status, 401);
           assert.equal((await fetch(`${url}/me`, { headers })).status, 200);
