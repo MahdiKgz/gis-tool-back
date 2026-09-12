@@ -45,6 +45,8 @@
 
 ### Infrastructure
 
+-   [x] CAD warning policy: accept known GDAL polygon fallbacks and explicitly partial missing-block imports; preserve diagnostics in normalized data and stored/compact reports; show warnings during analysis and saved-file review; reject unknown/native decoding errors; synthetic native, unit and real-project upload checks.
+
 -   [x] User-requested MinIO object storage: private owner/job original, normalized and healed objects; transactional PostgreSQL analysis/report metadata; object-backed queued conversion; owner-scoped 15-minute GET/POST signatures with exact-size upload policy; local Compose scoped credentials, lifecycle/TLS/backup guide, SHA-256 verified legacy migration, regression and real MinIO/CAD/export tests. See Object_Storage.md.
 
 -   [x] User-requested configurable healed-output download: owner-scoped server-side export to GeoJSON, Shapefile ZIP and DXF; fixed WGS84 source, selectable target EPSG, shared bounded sync/queue conversion, source preservation, API docs, unit checks and native HTTP integration including queued output and ownership.

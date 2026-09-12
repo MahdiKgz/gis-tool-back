@@ -48,8 +48,22 @@ Closed CAD polylines are exposed as polygons for gap/sliver checks, and open
 lines remain lines. Curves are approximated using a 0.1-degree angular step;
 this does not guarantee a fixed millimeter approximation error for every radius.
 Layer/entity identity and attributes are retained in the normalized GeoJSON.
-Native reader warnings fail the upload rather than publishing a known partial
-result. The converter does not run make-valid or topology healing before dry-run.
+Nonzero DWG decoder exits and native decoder warnings still fail the upload.
+GDAL's known `organizePolygons()` geometry fallback is accepted for topology review.
+`Block ... does not exist` is also accepted, but explicitly marks the imported
+content as partial: missing block contents are not reconstructed or assumed intact.
+Unknown GDAL warnings, empty/nonconvertible entities, invalid coordinates, resource
+limits and failed conversions still reject the upload. The converter does not run
+make-valid or topology healing before dry-run.
+
+Accepted diagnostics live in `snapgisCadImport` on normalized GeoJSON and
+`report.cadImport` in full/compact API reports. Both include `sourceCrs`, `targetCrs`,
+`partial`, and bounded `warnings` with `code`, `message`, `occurrences`.
+Warning occurrences count reader messages (including repeated reader passes),
+not affected or missing entities. The map results, saved file details and healed
+map view show these diagnostics; partial-file analysis and healing cover only
+the successfully read geometry. Clients must not present partial imports as a
+complete representation of the CAD drawing.
 
 ## API and storage
 
@@ -96,3 +110,8 @@ DGN through the actual upload controller, dry-run, cached preview and complete
 healing processor. Queue transport is replaced in that test, so it submits no
 jobs to the user's Redis instance. It also covers malformed input, unavailable
 Python and the DGN-v8 capability error. It is not an ODA/DGN-v8 conversion test.
+
+Warning policy unit tests also run with the generic suite. Native GDAL warning
+regressions are run by `pnpm test:cad`: a synthetic DXF with readable geometry and
+a missing block verifies successful partial import and persisted diagnostics;
+an unknown reader warning verifies rejection before output publication.

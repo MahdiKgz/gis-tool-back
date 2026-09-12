@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import warnings
+from cad_warnings import CadWarnings
 
 
 def fail(code, message):
@@ -59,7 +60,7 @@ def vertex_count(geometry):
     return visit(geometry["coordinates"])
 
 
-def convert(source, target, source_crs, dwgread):
+def convert(source, target, source_crs, dwgread, diagnostics):
     try:
         crs = coordinate_system(source_crs)
         if not (crs.is_geographic or crs.is_projected):
@@ -129,7 +130,10 @@ def convert(source, target, source_crs, dwgread):
                 for index, wkb in enumerate(geometries):
                     if wkb is None:
                         fail("INVALID_CAD_FILE", "The drawing contains an entity without convertible geometry.")
-                    geometry = mapping(transform(transformer.transform, from_wkb(wkb)))
+                    decoded = from_wkb(wkb)
+                    if decoded.is_empty:
+                        fail("INVALID_CAD_FILE", "The drawing contains an empty spatial entity.")
+                    geometry = mapping(transform(transformer.transform, decoded))
                     vertices += vertex_count(geometry)
                     if vertices > MAX_VERTICES or len(features) >= MAX_FEATURES:
                         fail("CAD_OUTPUT_TOO_LARGE", "The drawing exceeds the server geometry limit.")
@@ -144,7 +148,10 @@ def convert(source, target, source_crs, dwgread):
                     break
         if not features:
             fail("CAD_NO_GEOMETRY", "The drawing contains no convertible spatial entities.")
-        data = {"type": "FeatureCollection", "features": features}
+        if diagnostics.unsupported:
+            fail("CAD_CONVERSION_WARNING", "The CAD reader reported an unsupported warning; the drawing was not accepted.")
+        data = {"type": "FeatureCollection", "features": features,
+                "snapgisCadImport": diagnostics.report(source_crs)}
         encoded = json.dumps(data, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
         if len(encoded.encode("utf-8")) > MAX_OUTPUT_BYTES:
             fail("CAD_OUTPUT_TOO_LARGE", "The converted drawing exceeds the server size limit.")
@@ -160,13 +167,11 @@ if __name__ == "__main__":
         resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_OUTPUT_BYTES, MAX_OUTPUT_BYTES))
         resource.setrlimit(resource.RLIMIT_AS, (2 * 1024**3, 2 * 1024**3))
     try:
-        with warnings.catch_warnings(record=True) as recorded:
+        with warnings.catch_warnings():
             warnings.simplefilter("always")
-            convert(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4])
-            # Do not silently accept a partially decoded drawing.
-            if recorded:
-                Path(sys.argv[2]).unlink(missing_ok=True)
-                fail("CAD_CONVERSION_WARNING", "The CAD reader reported a conversion warning; the drawing was not accepted.")
+            diagnostics = CadWarnings()
+            warnings.showwarning = diagnostics.capture
+            convert(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4], diagnostics)
     except SystemExit:
         raise
     except Exception:

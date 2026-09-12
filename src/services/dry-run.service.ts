@@ -39,6 +39,7 @@ import {
 import { processTinyPolygons } from "../processing/tiny-polygons";
 import { processZeroAreaPolygons } from "../processing/zero-area-polygons";
 import { readGisFile } from "./gis-file.service";
+import { cadImportReport, type CadImportReport } from "./cad-import-report";
 
 export interface DryRunOptions {
   toleranceMillimeters: number;
@@ -85,6 +86,7 @@ interface ValidationReport {
 }
 
 export interface DryRunReport {
+  cadImport?: CadImportReport;
   mode: "dry-run";
   valid: boolean;
   summary: {
@@ -480,7 +482,9 @@ const buildReport = (
       }),
   };
 
+  const cadImport = cadImportReport(geojson.snapgisCadImport);
   return {
+    ...(cadImport ? { cadImport } : {}),
     mode: "dry-run",
     valid: Object.values(checks).every((report) => report.valid),
     summary: {
