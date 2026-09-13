@@ -19,7 +19,19 @@ export const globalErrorHandler = (
   res: Response,
   next: NextFunction,
 ) => {
-  console.error(`💥 Error Caught in Global Handler:`, err);
+  // Operational client responses (including an anonymous session check) are
+  // expected API outcomes. Keep stack traces for unexpected/server failures.
+  if ((err instanceof AppError && err.statusCode >= 400 && err.statusCode < 500) ||
+    err instanceof multer.MulterError) {
+    console.warn("API request rejected", {
+      method: req.method,
+      path: req.path,
+      status: err instanceof multer.MulterError ? 400 : err.statusCode,
+      code: err.code ?? "REQUEST_REJECTED",
+    });
+  } else {
+    console.error("Unhandled API error:", err);
+  }
 
   const statusCode = err.statusCode || 500;
   let message = err.message || "خطای داخلی سرور رخ داده است.";

@@ -238,6 +238,8 @@
 
 # Requested business layer — September 2026
 
+- [x] Saved-file preview waits for metadata and uses original geometry until healing completes; expected 401/409 responses retain their API contract with concise logs instead of server-failure stack traces. Regression coverage added for preview selection and error handling.
+
 - [x] Persist starter/pro/advanced plans with admin-only audited assignment.
 - [x] Company owner plus three colleagues, with in-app invitations requiring colleague acceptance.
 - [x] Transactional capacity, membership permissions and retained upload activity.
