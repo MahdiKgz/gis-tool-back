@@ -78,6 +78,13 @@ export const businessPaths = {
       ),
     },
   },
+  "/business/admin/users/{userId}/writer-role": {
+    patch: {
+      ...operation("Admin: grant or revoke article publishing access"),
+      parameters: [id("userId")],
+      requestBody: body({ enabled: { type: "boolean" } }, ["enabled"]),
+    },
+  },
   "/business/company": {
     get: operation(
       "Owner: cumulative company and current-member activity, seats and invitations",

@@ -45,6 +45,16 @@ router.patch(
     ),
   ),
 );
+router.patch(
+  "/admin/users/:userId/writer-role",
+  handle((req) =>
+    company.assignWriterRole(
+      getAuthenticatedUserId(req),
+      company.parseBusinessId(req.params.userId),
+      req.body?.enabled,
+    ),
+  ),
+);
 router.get(
   "/company",
   handle((req) => company.getCompanyDashboard(getAuthenticatedUserId(req))),

@@ -238,6 +238,7 @@
 
 # Requested business layer — September 2026
 
+- [x] Writer role, author-owned draft/publishing workflow, searchable category/keyword metadata and cursor-based public article feed.
 - [x] Saved-file preview waits for metadata and uses original geometry until healing completes; expected 401/409 responses retain their API contract with concise logs instead of server-failure stack traces. Regression coverage added for preview selection and error handling.
 
 - [x] Persist starter/pro/advanced plans with admin-only audited assignment.

@@ -1,8 +1,12 @@
 import { businessPaths } from "./business-openapi";
+import { articlePaths } from "./article-openapi";
 const compactReportParameter = {
-  name: "report", in: "query", required: false,
+  name: "report",
+  in: "query",
+  required: false,
   schema: { type: "string", enum: ["compact"] },
-  description: "Compact map response: unchanged counts/groups/geometry, empty checks, manual marker issues with stable issueIndex and empty details. Read complete issue details from /heal/{jobId}/issues. Omit for the legacy full report.",
+  description:
+    "Compact map response: unchanged counts/groups/geometry, empty checks, manual marker issues with stable issueIndex and empty details. Read complete issue details from /heal/{jobId}/issues. Omit for the legacy full report.",
 };
 
 const errorResponses = {
@@ -21,7 +25,14 @@ export const openApiDocument = {
   },
   servers: [{ url: "/api", description: "Current server" }],
   tags: [
-    { name: "Business", description: "User plans, company membership and activity" },
+    {
+      name: "Business",
+      description: "User plans, company membership and activity",
+    },
+    {
+      name: "Articles",
+      description: "Public knowledge base and writer publishing",
+    },
     { name: "Conversion", description: "Standalone format and CRS conversion" },
     { name: "System", description: "Service health" },
     { name: "Authentication", description: "Account and session lifecycle" },
@@ -33,21 +44,83 @@ export const openApiDocument = {
   ],
   paths: {
     ...businessPaths,
+    ...articlePaths,
     "/upload/presign": {
       post: {
-        tags: ["Upload"], summary: "Authorize a direct MinIO multipart POST (15 minutes)",
+        tags: ["Upload"],
+        summary: "Authorize a direct MinIO multipart POST (15 minutes)",
         security: [{ bearerAuth: [] }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["fileName", "size"], properties: { fileName: { type: "string", maxLength: 255 }, size: { type: "integer", minimum: 1, maximum: 262144000 } } } } } },
-        responses: { "201": { description: "data contains uploadId, method, url, fields, expiresAt and completePath. Append all fields, then file last. Exact-size POST policy is enforced by MinIO." }, "413": { description: "Invalid or excessive size" }, "503": { description: "S3 storage unavailable" }, ...errorResponses },
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["fileName", "size"],
+                properties: {
+                  fileName: { type: "string", maxLength: 255 },
+                  size: { type: "integer", minimum: 1, maximum: 262144000 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": {
+            description:
+              "data contains uploadId, method, url, fields, expiresAt and completePath. Append all fields, then file last. Exact-size POST policy is enforced by MinIO.",
+          },
+          "413": { description: "Invalid or excessive size" },
+          "503": { description: "S3 storage unavailable" },
+          ...errorResponses,
+        },
       },
     },
     "/upload/{uploadId}/complete": {
       post: {
-        tags: ["Upload"], summary: "Claim an owned uploaded object and perform dry-run analysis",
+        tags: ["Upload"],
+        summary: "Claim an owned uploaded object and perform dry-run analysis",
         security: [{ bearerAuth: [] }],
-        parameters: [{ name: "uploadId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, compactReportParameter],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["name"], properties: { name: { type: "string" }, tolerance: { type: "number", minimum: 0, exclusiveMinimum: true }, sourceCrs: { type: "string", example: "EPSG:32639" } } } } } },
-        responses: { "201": { description: "Existing dry-run response; original and normalized snapshots persisted" }, "404": { description: "Upload not found or not owned" }, "409": { description: "Upload already claimed" }, "410": { description: "Upload authorization expired" }, "422": { description: "Size mismatch or invalid GIS content" }, ...errorResponses },
+        parameters: [
+          {
+            name: "uploadId",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+          compactReportParameter,
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["name"],
+                properties: {
+                  name: { type: "string" },
+                  tolerance: {
+                    type: "number",
+                    minimum: 0,
+                    exclusiveMinimum: true,
+                  },
+                  sourceCrs: { type: "string", example: "EPSG:32639" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": {
+            description:
+              "Existing dry-run response; original and normalized snapshots persisted",
+          },
+          "404": { description: "Upload not found or not owned" },
+          "409": { description: "Upload already claimed" },
+          "410": { description: "Upload authorization expired" },
+          "422": { description: "Size mismatch or invalid GIS content" },
+          ...errorResponses,
+        },
       },
     },
     "/convert": {
@@ -502,15 +575,32 @@ export const openApiDocument = {
     "/heal/{jobId}/issues": {
       parameters: [{ $ref: "#/components/parameters/JobId" }],
       get: {
-        tags: ["Topology"], security: [{ bearerAuth: [] }],
-        summary: "Read an owned analysis's complete issue details in bounded pages",
+        tags: ["Topology"],
+        security: [{ bearerAuth: [] }],
+        summary:
+          "Read an owned analysis's complete issue details in bounded pages",
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", minimum: 1, default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 25 } },
-          { name: "code", in: "query", schema: { type: "string", maxLength: 128 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", minimum: 1, default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", minimum: 1, maximum: 100, default: 25 },
+          },
+          {
+            name: "code",
+            in: "query",
+            schema: { type: "string", maxLength: 128 },
+          },
         ],
         responses: {
-          "200": { description: "data: {items, page, limit, total}. Each item includes its original issueIndex and full details; filtering occurs before pagination." },
+          "200": {
+            description:
+              "data: {items, page, limit, total}. Each item includes its original issueIndex and full details; filtering occurs before pagination.",
+          },
           "404": { $ref: "#/components/responses/NotFound" },
           ...errorResponses,
         },
@@ -635,18 +725,43 @@ export const openApiDocument = {
     "/heal/{jobId}/export": {
       parameters: [{ $ref: "#/components/parameters/JobId" }],
       post: {
-        tags: ["Conversion"], security: [{ bearerAuth: [] }],
-        summary: "Export owned healed output in a selected format and target CRS",
-        description: "Uses the stored healed GeoJSON directly; no browser re-upload. Source CRS is fixed to EPSG:4326. Up to 5 MiB converts synchronously; larger inputs use the existing conversion queue. Full analytical geometry remains unchanged.",
-        requestBody: { required: true, content: { "application/json": { schema: {
-          type: "object", properties: {
-            targetFormat: { type: "string", enum: ["geojson", "shapefile", "dxf"], default: "geojson" },
-            targetCRS: { type: "string", example: "EPSG:32639", default: "EPSG:4326" },
+        tags: ["Conversion"],
+        security: [{ bearerAuth: [] }],
+        summary:
+          "Export owned healed output in a selected format and target CRS",
+        description:
+          "Uses the stored healed GeoJSON directly; no browser re-upload. Source CRS is fixed to EPSG:4326. Up to 5 MiB converts synchronously; larger inputs use the existing conversion queue. Full analytical geometry remains unchanged.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  targetFormat: {
+                    type: "string",
+                    enum: ["geojson", "shapefile", "dxf"],
+                    default: "geojson",
+                  },
+                  targetCRS: {
+                    type: "string",
+                    example: "EPSG:32639",
+                    default: "EPSG:4326",
+                  },
+                },
+              },
+            },
           },
-        } } } },
+        },
         responses: {
-          "200": { description: "Binary converted file with Content-Disposition and X-Conversion-Result headers" },
-          "202": { description: "Conversion job receipt; use GET /convert/{id} and /convert/{id}/download" },
+          "200": {
+            description:
+              "Binary converted file with Content-Disposition and X-Conversion-Result headers",
+          },
+          "202": {
+            description:
+              "Conversion job receipt; use GET /convert/{id} and /convert/{id}/download",
+          },
           "404": { $ref: "#/components/responses/NotFound" },
           "409": { description: "Healing output is not ready" },
           "410": { description: "Stored output has expired or is unavailable" },
@@ -862,7 +977,10 @@ export const openApiDocument = {
               plan: {
                 type: "object",
                 properties: {
-                  code: { type: "string", enum: ["starter", "pro", "advanced"] },
+                  code: {
+                    type: "string",
+                    enum: ["starter", "pro", "advanced"],
+                  },
                   name: { type: "string", example: "رایگان" },
                   expiresAt: {
                     type: "string",

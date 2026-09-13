@@ -13,6 +13,7 @@ import { openApiDocument } from "./docs/openapi";
 import { AppError } from "./middlewares/errorHandler";
 
 import { router as conversionRouter } from "./routes/conversion.route";
+import { router as articleRouter } from "./routes/article.route";
 
 const app: Application = express();
 
@@ -42,7 +43,9 @@ app.get("/api/docs.json", (_req, res) => res.json(openApiDocument));
 app.use(
   "/api/docs",
   swaggerUi.serve,
-  swaggerUi.setup(openApiDocument, { customSiteTitle: "SnapGIS API Documentation" }),
+  swaggerUi.setup(openApiDocument, {
+    customSiteTitle: "SnapGIS API Documentation",
+  }),
 );
 
 app.use("/api/auth", authRouter);
@@ -51,12 +54,15 @@ app.use("/api/heal", healRouter);
 app.use("/api/files", fileRouter);
 app.use("/api/business", businessRouter);
 app.use("/api/convert", conversionRouter);
+app.use("/api/articles", articleRouter);
 
 app.get(["/health", "/api/health"], (_req, res) => {
   res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-app.use((_req, _res, next) => next(new AppError(404, "Route not found", "ROUTE_NOT_FOUND")));
+app.use((_req, _res, next) =>
+  next(new AppError(404, "Route not found", "ROUTE_NOT_FOUND")),
+);
 app.use(globalErrorHandler);
 
 export default app;

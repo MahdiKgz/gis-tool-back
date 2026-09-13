@@ -173,6 +173,32 @@ export const assignUserPlan = async (
     return { ...planByCode(planCode), userId };
   });
 };
+export const assignWriterRole = async (
+  actorId: string,
+  userId: string,
+  enabled: unknown,
+) => {
+  if (typeof enabled !== "boolean")
+    throw new AppError(
+      400,
+      "وضعیت نقش نویسنده معتبر نیست.",
+      "INVALID_ROLE_STATUS",
+    );
+  return database.$transaction(async (tx) => {
+    await requireAdmin(tx, actorId);
+    await lockUser(tx, userId);
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { roles: true },
+    });
+    if (!user) throw new AppError(404, "کاربر پیدا نشد.", "USER_NOT_FOUND");
+    const roles = enabled
+      ? [...new Set([...user.roles, "writer"])]
+      : user.roles.filter((role) => role !== "writer");
+    await tx.user.update({ where: { id: userId }, data: { roles } });
+    return { userId, roles };
+  });
+};
 export const listPlanUsers = async (
   actorId: string,
   query: { search?: unknown; plan?: unknown; skip?: unknown; limit?: unknown },
@@ -211,7 +237,7 @@ export const listPlanUsers = async (
   const [items, total] = await database.$transaction([
     database.user.findMany({
       where,
-      select: { ...publicPerson, planCode: true },
+      select: { ...publicPerson, planCode: true, roles: true },
       orderBy: [{ createdAt: "desc" }, { id: "asc" }],
       skip,
       take: limit,
