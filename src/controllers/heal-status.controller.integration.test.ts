@@ -21,6 +21,7 @@ import {
   updateManualReview,
 } from "./heal-status.controller";
 import type { HealingQueueEvent } from "../services/heal-event.service";
+import storage = require("../services/object-storage.service");
 
 const emptyReport = {
   mode: "dry-run",
@@ -60,6 +61,70 @@ const emptyReport = {
 } as DryRunReport;
 
 const ownerId = "6c2d5ee6-9852-4ddd-86db-f62582ef93de";
+
+test("object-backed map previews serve normalized original and healed geometry without storage redirects", async (t) => {
+  const directory = await fs.mkdtemp(path.join("/tmp", "snapgis-preview-test-"));
+  const original = {
+    type: "FeatureCollection",
+    features: [{ type: "Feature", properties: { name: "parcel" }, geometry: {
+      type: "Polygon", coordinates: [[[51, 35], [51.01, 35], [51.01, 35.01], [51, 35]]],
+    } }],
+  };
+  const healed = structuredClone(original);
+  healed.features[0]!.geometry.coordinates[0]![1] = [51.02, 35];
+  const originalPath = path.join(directory, "original.geojson");
+  const healedPath = path.join(directory, "healed.geojson");
+  await fs.writeFile(originalPath, JSON.stringify(original));
+  await fs.writeFile(healedPath, JSON.stringify(healed));
+  const sourceReference = `s3://test/${ownerId}/normalized/input.geojson`;
+  const analysis = await saveAnalysis({
+    fileName: "parcel.dwg", originalName: "parcel.dwg", filePath: sourceReference,
+    size: 12, tolerance: 25,
+  }, emptyReport, undefined, ownerId);
+  const outputReference = `s3://test/${ownerId}/${analysis.id}/healed/parcel.geojson`;
+  await markAnalysisCompleted(analysis.id, { outputFileName: "parcel.geojson", outputFilePath: outputReference });
+  t.after(async () => {
+    await fs.rm(directory, { recursive: true, force: true });
+    await fs.rm(path.resolve("uploads/gis_analyses", `${analysis.id}.json`), { force: true });
+  });
+  let cleanups = 0;
+  t.mock.method(storage, "storedStat", async () => fs.stat(originalPath));
+  t.mock.method(storage, "objectLocation", () => ({ Bucket: "test", Key: `${ownerId}/${analysis.id}/healed/parcel.geojson` }));
+  t.mock.method(storage, "materializeStoredFile", async (reference: string, name: string) => {
+    const isSource = reference === sourceReference;
+    assert.ok(isSource || reference === outputReference);
+    assert.equal(name, isSource ? "input.geojson" : "parcel.geojson");
+    return { filePath: isSource ? originalPath : healedPath, cleanup: async () => { cleanups++; } };
+  });
+  const request = { params: { jobId: analysis.id }, auth: { userId: ownerId, roles: ["user"] } } as unknown as Request;
+  let body: unknown;
+  const response = {
+    type(value: string) { assert.equal(value, "application/geo+json"); return this; },
+    status(value: number) { assert.equal(value, 200); return this; },
+    json(value: unknown) { body = value; return this; },
+    redirect() { assert.fail("Map previews must not redirect to object storage"); },
+    sendFile(filePath: string, callback: (error?: Error) => void) {
+      void fs.readFile(filePath, "utf8").then(value => { body = JSON.parse(value); callback(); }, callback);
+      return this;
+    },
+  } as unknown as Response;
+  const next = ((error?: unknown) => { if (error) throw error; }) as NextFunction;
+  await previewOriginalInput(request, response, next);
+  assert.deepEqual(body, original);
+  assert.equal(cleanups, 1);
+  await previewHealedOutput(request, response, next);
+  assert.deepEqual(body, healed);
+  assert.equal(cleanups, 2);
+
+  const sendError = new Error("Response closed before transmission completed");
+  let receivedError: unknown;
+  await previewHealedOutput(request, {
+    type() { return this; },
+    sendFile(_filePath: string, callback: (error?: Error) => void) { callback(sendError); },
+  } as unknown as Response, (error?: unknown) => { receivedError = error; });
+  assert.equal(receivedError, sendError);
+  assert.equal(cleanups, 3, "temporary output is cleaned after send failures too");
+});
 
 test("serves completed status, preview GeoJSON, and attachment download", async (t) => {
   const analysis = await saveAnalysis(

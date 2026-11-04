@@ -18,9 +18,19 @@ The frontend now requests compact mode and loads diagnostic pages only when the
 user expands details, both in map results and the dashboard file dialog. Other
 clients can omit the query parameter to retain the existing full-report contract.
 Full reports remain on disk; dry-run detection, CAD tessellation/CRS conversion,
-healing inputs and exact geometry have not changed. Manual marker geometry comes
-from the already-loaded affected collection; original geometry is fetched only
-when the user requests its overlay.
+healing inputs and exact geometry have not changed. Issue links focus the existing
+feature geometry without creating centroid points or synthetic map markers.
+Original geometry is fetched when the user requests its overlay.
+
+## Object-backed map previews
+
+`GET /api/heal/:jobId/original` returns normalized GeoJSON through the authenticated
+API, including when the original upload is CAD and the stored input is normalized
+GeoJSON. `GET /api/heal/:jobId/output` serves the exact healed GeoJSON through the
+same API. Neither map endpoint redirects to the object-storage public origin, so
+rendering does not require browser access to that origin or its CORS configuration.
+Temporary object-backed output files are removed after successful or failed
+transmission. The download endpoint retains signed attachment redirects.
 
 ## Measured sample
 

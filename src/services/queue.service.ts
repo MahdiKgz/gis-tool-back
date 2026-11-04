@@ -9,7 +9,6 @@ export const redisConnection = new IORedis({
 });
 
 export const gisQueue = new Queue("gis-processing-queue", {
-  // @ts-expect-error type-checking for connection type
   connection: redisConnection,
   defaultJobOptions: {
     attempts: 3,

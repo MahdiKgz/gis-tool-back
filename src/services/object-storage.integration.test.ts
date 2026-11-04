@@ -60,7 +60,7 @@ integration('MinIO: private bounded direct upload, owned analysis/healing, downl
 
   for (const format of ['geojson', 'dwg', 'dgn']) {
     await t.test(format, async () => {
-      const bytes = format === 'geojson' ? Buffer.from(JSON.stringify({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: { name: 'parcel' }, geometry: { type: 'Polygon', coordinates: [[[51,35],[51.01,35],[51.01,35.01],[51,35.01],[51,35]]] } }] })) : await fs.readFile(`src/test-data/cad/projected-parcel.${format}`);
+      const bytes = format === 'geojson' ? Buffer.from(JSON.stringify({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: { name: 'parcel' }, geometry: { type: 'Polygon', coordinates: [[[51,35],[51.01,35],[51.01,35],[51.01,35.01],[51,35.01],[51,35]]] } }] })) : await fs.readFile(`src/test-data/cad/projected-parcel.${format}`);
       const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
       let response = await fetch(`${base}/api/upload/presign`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ fileName: `parcel.${format}`, size: bytes.length }) });
       assert.equal(response.status, 201);
@@ -80,14 +80,38 @@ integration('MinIO: private bounded direct upload, owned analysis/healing, downl
       assert.equal((await fetch(`${base}${post.completePath}`, { method: 'POST', headers: jsonHeaders, body: '{}' })).status, 409);
       assert.equal((await fetch(`${base}/api/heal/${id}/original`, { headers: other })).status, 404);
       const originalResponse = await fetch(`${base}/api/heal/${id}/original`, { headers, redirect: 'manual' });
-      assert.equal(originalResponse.status, 302);
-      assert.ok((await (await fetch(originalResponse.headers.get('location')!)).json() as any).features.length > 0);
-      const unsigned = new URL(originalResponse.headers.get('location')!); unsigned.search = '';
+      assert.equal(originalResponse.status, 200);
+      assert.equal(originalResponse.headers.get('location'), null);
+      const originalGeometry = await originalResponse.json() as any;
+      assert.ok(originalGeometry.features.length > 0);
+      assert.ok(originalGeometry.features.every((feature: any) => feature.geometry.type === 'Polygon'));
+      if (format === 'geojson') {
+        assert.equal(originalGeometry.features[0].geometry.coordinates[0].length, 6, 'original preview preserves the uploaded duplicate vertex');
+      }
+      const unsigned = new URL(await storage.signedDownload(analysis.jobData.filePath)); unsigned.search = '';
       assert.equal((await fetch(unsigned)).status, 403);
       const healed = await processJob({ id, data: analysis.jobData, updateProgress: async () => {} });
       objects.add(healed.outputFilePath);
       assert.ok(healed.outputFilePath.startsWith('s3://'));
       await markAnalysisCompleted(id, healed);
+      const preview = await fetch(`${base}/api/heal/${id}/output`, { headers, redirect: 'manual' });
+      assert.equal(preview.status, 200);
+      assert.equal(preview.headers.get('location'), null);
+      const previewGeometry = await preview.json() as any;
+      assert.ok(previewGeometry.features.length > 0);
+      assert.ok(previewGeometry.features.every((feature: any) => feature.geometry.type === 'Polygon'));
+      if (format === 'geojson') {
+        assert.equal(healed.duplicateVerticesRemoved, 1);
+        assert.equal(previewGeometry.features.length, 1, 'healed preview contains the repaired polygon without synthetic points');
+        assert.deepEqual(previewGeometry.features[0].geometry.coordinates, [[[51,35],[51.01,35],[51.01,35.01],[51,35.01],[51,35]]]);
+        const reopened = await fetch(`${base}/api/files/${id}?report=compact`, { headers });
+        assert.equal(reopened.status, 200);
+        const saved = (await reopened.json() as any).data;
+        assert.equal(saved.status, 'completed');
+        const reopenedPreview = await fetch(`${base}${saved.healing.result.output.previewPath}`, { headers, redirect: 'manual' });
+        assert.equal(reopenedPreview.status, 200);
+        assert.deepEqual(await reopenedPreview.json(), previewGeometry, 'reopening the saved repaired file preserves its actual geometry');
+      }
       await Promise.all([markAnalysisProgress(id, 12), saveManualReviewDecision(id, 0, 'approved')]);
       assert.equal((await getAnalysis(id))!.healStatus, 'completed');
       assert.equal((await getAnalysis(id))!.reviewDecisions?.['0']?.action, 'approved');
@@ -96,7 +120,7 @@ integration('MinIO: private bounded direct upload, owned analysis/healing, downl
       assert.equal(download.status, 302);
       const output = await fetch(download.headers.get('location')!);
       assert.ok(output.headers.get('content-disposition')?.includes('attachment'));
-      assert.equal((await output.json() as any).type, 'FeatureCollection');
+      assert.deepEqual(await output.json(), previewGeometry);
       for (const targetFormat of ['geojson', 'shapefile', 'dxf']) {
         const exported = await fetch(`${base}/api/heal/${id}/export`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ targetFormat, targetCRS: 'EPSG:32639' }) });
         assert.equal(exported.status, 200, await (exported.ok ? Promise.resolve('') : exported.text()));

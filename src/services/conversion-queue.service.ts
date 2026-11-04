@@ -16,7 +16,6 @@ export const conversionQueue = new Queue<
   ConversionJobResult,
   "convert"
 >(QUEUE_NAME, {
-  // @ts-expect-error BullMQ bundles a different ioredis type version.
   connection: redisConnection,
   defaultJobOptions: {
     attempts: 1,
@@ -29,7 +28,6 @@ export const startConversionWorker = () =>
     QUEUE_NAME,
     (job) => processConversionJob(job.data),
     {
-      // @ts-expect-error BullMQ bundles a different ioredis type version.
       connection: redisConnection,
       concurrency: 1,
     },
