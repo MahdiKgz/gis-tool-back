@@ -38,3 +38,12 @@ duplicates. These credentials are for local development only.
 
 Topology upload, healing, preview, and download endpoints require a valid
 access token. Stored analysis jobs are scoped to the user who created them.
+
+## Browser origins
+
+The API installs credentialed CORS before request parsing and authentication, so
+login preflight and authentication errors carry the allowed frontend origin.
+`CORS_ORIGIN` accepts a comma-separated list of exact origins, such as
+`http://localhost:5173,https://app.example.com`; the development default is
+`http://localhost:5173`. Use origins only, without `/login` or another path.
+Restart the API after changing this environment setting.

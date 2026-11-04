@@ -1,7 +1,7 @@
 import { router as businessRouter } from "./routes/business.route";
 import "dotenv/config";
 import express, { Application } from "express";
-import cors from "cors";
+import { createCorsMiddleware } from "./middlewares/cors.middleware";
 import cookieParser from "cookie-parser";
 import swaggerUi from "swagger-ui-express";
 import { router as authRouter } from "./routes/auth.route";
@@ -18,17 +18,7 @@ import { router as articleRouter } from "./routes/article.route";
 const app: Application = express();
 
 app.set("trust proxy", 1);
-const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:5173")
-  .split(",")
-  .map((origin) => origin.trim());
-app.use(
-  cors({
-    credentials: true,
-    origin(origin, callback) {
-      callback(null, !origin || allowedOrigins.includes(origin));
-    },
-  }),
-);
+app.use(createCorsMiddleware());
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");

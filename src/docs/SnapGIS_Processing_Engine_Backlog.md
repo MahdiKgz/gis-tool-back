@@ -45,6 +45,8 @@
 
 ### Infrastructure
 
+-   [x] Restore credentialed API CORS for the configured frontend origins before authentication and JSON parsing; regression checks cover login preflight, actual response headers, origin lists and the localhost development default.
+
 -   [x] User-requested map preview repair: serve normalized original and healed GeoJSON through the authenticated API for object-backed files, avoiding storage redirects/CORS failures; preserve healed geometry and signed attachment downloads, with preview/cleanup regressions and real storage workflow coverage. See CAD_Map_Performance.md.
 
 -   [x] CAD warning policy: accept known GDAL polygon fallbacks and explicitly partial missing-block imports; preserve diagnostics in normalized data and stored/compact reports; show warnings during analysis and saved-file review; reject unknown/native decoding errors; synthetic native, unit and real-project upload checks.

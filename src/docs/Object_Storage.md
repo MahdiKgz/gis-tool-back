@@ -63,8 +63,9 @@ Optional direct-to-MinIO flow, requiring Bearer authentication on the two API ca
    temporary object cannot modify the original/normalized snapshots that were already accepted.
 
 Presigned upload/download permissions expire after 15 minutes. Preview/download API URLs remain
-stable and authenticated; S3-mode original/healed GETs return 302 to a fresh signed GET URL.
-Clients must follow redirects and MinIO must allow the frontend's origin through CORS.
+stable and authenticated. Original/healed map previews return GeoJSON directly through the API.
+Attachment downloads still redirect to signed GET URLs; direct MinIO uploads and downloads
+require MinIO to allow the frontend origin through CORS.
 Export conversion still returns binary plus `X-Conversion-Result`, or a 202 receipt. Queued inputs
 and outputs are object-backed; workers create their own temporary directories. Downloads preserve
 Content-Disposition and conversion report headers. The accepted conversion retains its own source
