@@ -1,8 +1,9 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { database } from "./database.service";
 import { AppError } from "../middlewares/errorHandler";
 import { normalizePhone } from "./auth.service";
 import { parsePlanCode, planByCode } from "./business-plan.service";
+import { parseAdminProfile } from "./admin-inputs";
 
 type Client = Prisma.TransactionClient;
 const publicPerson = {
@@ -45,7 +46,7 @@ export const parseCompanyName = (value: unknown) => {
     );
   return name;
 };
-const requireAdmin = async (tx: Client, actorId: string) => {
+export const requireAdmin = async (tx: Client, actorId: string) => {
   const actor = await tx.user.findUnique({
     where: { id: actorId },
     select: { roles: true },
@@ -201,9 +202,16 @@ export const assignWriterRole = async (
 };
 export const listPlanUsers = async (
   actorId: string,
-  query: { search?: unknown; plan?: unknown; skip?: unknown; limit?: unknown },
+  query: {
+    search?: unknown;
+    plan?: unknown;
+    role?: unknown;
+    skip?: unknown;
+    limit?: unknown;
+  },
 ) => {
-  await requireAdmin(database, actorId);
+  if (query.search !== undefined && typeof query.search !== "string")
+    throw new AppError(400, "عبارت جست‌وجو معتبر نیست.", "INVALID_SEARCH");
   const search = typeof query.search === "string" ? query.search.trim() : "";
   if (search.length > 100)
     throw new AppError(
@@ -234,20 +242,143 @@ export const listPlanUsers = async (
       : {}),
     ...(query.plan ? { planCode: parsePlanCode(query.plan) } : {}),
   };
-  const [items, total] = await database.$transaction([
-    database.user.findMany({
-      where,
-      select: { ...publicPerson, planCode: true, roles: true },
-      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-      skip,
-      take: limit,
+  if (query.role !== undefined && query.role !== "") {
+    if (
+      typeof query.role !== "string" ||
+      !["user", "writer", "admin"].includes(query.role)
+    )
+      throw new AppError(400, "نقش انتخاب‌شده معتبر نیست.", "INVALID_ROLE");
+    where.roles = { has: query.role };
+  }
+  return database.$transaction(
+    async (tx) => {
+      await requireAdmin(tx, actorId);
+      const [items, total] = await Promise.all([
+        tx.user.findMany({
+          where,
+          select: { ...publicPerson, planCode: true, roles: true },
+          orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+          skip,
+          take: limit,
+        }),
+        tx.user.count({ where }),
+      ]);
+      return {
+        items: await enrichAdminUsers(tx, items),
+        pagination: { skip, limit, total },
+      };
+    },
+    { isolationLevel: "RepeatableRead" },
+  );
+};
+
+const adminPerson = { ...publicPerson, planCode: true, roles: true } as const;
+type AdminPerson = Prisma.UserGetPayload<{ select: typeof adminPerson }>;
+const enrichAdminUsers = async (tx: Client, users: AdminPerson[]) => {
+  const userId = { in: users.map((user) => user.id) };
+  const [usage, files] = await Promise.all([
+    tx.uploadActivity.groupBy({
+      by: ["userId"],
+      where: { userId },
+      _count: { _all: true },
+      _sum: { sizeInBytes: true, identifiedIssues: true, healedIssues: true },
     }),
-    database.user.count({ where }),
+    tx.uploadedFile.groupBy({
+      by: ["userId"],
+      where: { userId },
+      _count: { _all: true },
+    }),
   ]);
-  return {
-    items: items.map((user) => ({ ...user, plan: planByCode(user.planCode) })),
-    pagination: { skip, limit, total },
-  };
+  const usageByUser = new Map(usage.map((row) => [row.userId, row]));
+  const filesByUser = new Map(
+    files.map((row) => [row.userId, row._count._all]),
+  );
+  return users.map((user) => {
+    const row = usageByUser.get(user.id);
+    return {
+      ...user,
+      plan: planByCode(user.planCode),
+      usage: {
+        uploads: row?._count._all ?? 0,
+        bytes: row?._sum.sizeInBytes ?? 0,
+        identifiedIssues: row?._sum.identifiedIssues ?? 0,
+        healedIssues: row?._sum.healedIssues ?? 0,
+      },
+      storedFiles: filesByUser.get(user.id) ?? 0,
+    };
+  });
+};
+
+export const adminFileMetadata = {
+  id: true,
+  name: true,
+  originalName: true,
+  healStatus: true,
+  sizeInBytes: true,
+  identifiedIssues: true,
+  healedIssues: true,
+  createdAt: true,
+} as const;
+
+export const getAdminUser = (actorId: string, userId: string) =>
+  database.$transaction(
+    async (tx) => {
+      await requireAdmin(tx, actorId);
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: adminPerson,
+      });
+      if (!user) throw new AppError(404, "کاربر پیدا نشد.", "USER_NOT_FOUND");
+      const [enriched, recentFiles] = await Promise.all([
+        enrichAdminUsers(tx, [user]),
+        tx.uploadedFile.findMany({
+          where: { userId },
+          select: adminFileMetadata,
+          orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+          take: 10,
+        }),
+      ]);
+      return { user: enriched[0]!, recentFiles };
+    },
+    { isolationLevel: "RepeatableRead" },
+  );
+
+export const updateAdminUser = async (
+  actorId: string,
+  userId: string,
+  body: unknown,
+) => {
+  try {
+    return await database.$transaction(async (tx) => {
+      await requireAdmin(tx, actorId);
+      const data = parseAdminProfile(body);
+      await lockUser(tx, userId);
+      if (
+        !(await tx.user.findUnique({
+          where: { id: userId },
+          select: { id: true },
+        }))
+      )
+        throw new AppError(404, "کاربر پیدا نشد.", "USER_NOT_FOUND");
+      const user = await tx.user.update({
+        where: { id: userId },
+        data,
+        select: adminPerson,
+      });
+      return (await enrichAdminUsers(tx, [user]))[0]!;
+    });
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    )
+      throw new AppError(
+        409,
+        "این شماره همراه قبلاً ثبت شده است.",
+        "PHONE_ALREADY_EXISTS",
+      );
+    throw error;
+  }
 };
 export const getBusinessContext = async (userId: string) => {
   const user = await database.user.findUnique({

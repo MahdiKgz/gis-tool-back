@@ -10,6 +10,7 @@ import {
 import { authRateLimit } from "../middlewares/auth-rate-limit.middleware";
 import { PLANS } from "../services/business-plan.service";
 import * as company from "../services/company.service";
+import { getAdminReports } from "../services/admin-reports.service";
 
 const router = express.Router();
 const handle =
@@ -28,6 +29,29 @@ router.use(requireAuthentication);
 router.get(
   "/me",
   handle((req) => company.getBusinessContext(getAuthenticatedUserId(req))),
+);
+router.get(
+  "/admin/reports",
+  handle((req) => getAdminReports(getAuthenticatedUserId(req), req.query)),
+);
+router.get(
+  "/admin/users/:userId",
+  handle((req) =>
+    company.getAdminUser(
+      getAuthenticatedUserId(req),
+      company.parseBusinessId(req.params.userId),
+    ),
+  ),
+);
+router.patch(
+  "/admin/users/:userId",
+  handle((req) =>
+    company.updateAdminUser(
+      getAuthenticatedUserId(req),
+      company.parseBusinessId(req.params.userId),
+      req.body,
+    ),
+  ),
 );
 router.get(
   "/admin/users",

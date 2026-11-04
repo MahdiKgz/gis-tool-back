@@ -41,7 +41,9 @@ export const businessPaths = {
   },
   "/business/admin/users": {
     get: {
-      ...operation("Admin: search and filter accounts by assigned plan"),
+      ...operation(
+        "Admin: search/filter accounts with cumulative upload usage and retained file counts",
+      ),
       parameters: [
         {
           name: "search",
@@ -54,6 +56,13 @@ export const businessPaths = {
           schema: { type: "string", enum: ["starter", "pro", "advanced"] },
         },
         {
+          name: "role",
+          in: "query",
+          description:
+            "Membership in the roles array; an account can have multiple roles. Empty value means no filter.",
+          schema: { type: "string", enum: ["user", "writer", "admin"] },
+        },
+        {
           name: "skip",
           in: "query",
           schema: { type: "integer", minimum: 0, default: 0 },
@@ -64,6 +73,47 @@ export const businessPaths = {
           schema: { type: "integer", minimum: 1, maximum: 50, default: 10 },
         },
       ],
+    },
+  },
+  "/business/admin/users/{userId}": {
+    get: {
+      ...operation(
+        "Admin: account with cumulative upload usage and latest 10 retained files (safe metadata only)",
+      ),
+      parameters: [id("userId")],
+    },
+    patch: {
+      ...operation(
+        "Admin: update name and Iranian mobile number; returns the full account list item; extra fields rejected",
+      ),
+      parameters: [id("userId")],
+      requestBody: {
+        ...body(
+          {
+            name: { type: "string", minLength: 2, maxLength: 100 },
+            phone: { type: "string", example: "09123456789" },
+          },
+          ["name", "phone"],
+        ),
+      },
+      responses: {
+        ...responses,
+        "409": { description: "Phone already belongs to another account" },
+      },
+    },
+  },
+  "/business/admin/reports": {
+    get: {
+      ...operation(
+        "Admin: aggregate system report, UTC upload-date buckets including deleted history; current account/company/plan snapshot",
+      ),
+      description:
+        "Defaults to the last 30 UTC calendar days. Inclusive from/to, maximum 366 days. Completed/failed counts represent current status of uploads created in the period, not completion event timestamps. Recent failures only include retained files; no stack traces, object keys or internal paths. See Admin_Management.md for the response contract.",
+      parameters: ["from", "to"].map((name) => ({
+        name,
+        in: "query",
+        schema: { type: "string", format: "date" },
+      })),
     },
   },
   "/business/admin/users/{userId}/plan": {

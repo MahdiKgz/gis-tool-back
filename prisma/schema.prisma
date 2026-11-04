@@ -25,6 +25,7 @@ model User {
   assignedPlans      PlanAssignment[]    @relation("PlanActor")
   articles           Article[]
 
+  @@index([createdAt])
   @@map("users")
 }
 
@@ -74,6 +75,7 @@ model UploadedFile {
 
   @@index([userId, createdAt])
   @@index([userId, healStatus])
+  @@index([createdAt])
   @@map("uploaded_files")
 }
 
@@ -168,6 +170,7 @@ model UploadActivity {
 
   @@index([companyId, userId])
   @@index([userId, createdAt])
+  @@index([createdAt])
   @@map("upload_activity")
 }
 

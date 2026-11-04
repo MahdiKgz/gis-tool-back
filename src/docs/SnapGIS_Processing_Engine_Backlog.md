@@ -45,6 +45,8 @@
 
 ### Infrastructure
 
+-   [x] User-requested admin user management and system reports: admin-only searchable role/plan-filtered accounts, validated name/mobile editing, writer-role controls, cumulative usage and retained-file metadata, UTC date-range system metrics/daily trends including deleted upload history, date indexes, API/UI documentation, unit and real PostgreSQL/HTTP access-boundary tests. See Admin_Management.md.
+
 -   [x] Restore credentialed API CORS for the configured frontend origins before authentication and JSON parsing; regression checks cover login preflight, actual response headers, origin lists and the localhost development default.
 
 -   [x] User-requested map preview repair: serve normalized original and healed GeoJSON through the authenticated API for object-backed files, avoiding storage redirects/CORS failures; preserve healed geometry and signed attachment downloads, with preview/cleanup regressions and real storage workflow coverage. See CAD_Map_Performance.md.
