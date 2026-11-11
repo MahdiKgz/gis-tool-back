@@ -14,6 +14,8 @@ import { createConversionHandlers } from "../controllers/conversion.controller";
 import {
   downloadHealedOutput,
   getManualReviewParcel,
+  getManualReviewGroup,
+  updateManualReviewGroup,
   previewHealedOutput,
   updateManualReview,
 } from "../controllers/heal-status.controller";
@@ -156,4 +158,106 @@ test("a confirmed parcel edit survives reordered healing output and is used for 
   assert.deepEqual(resumed.data.geometry, repaired);
   assert.equal(resumed.data.confirmed, true);
   assert.notEqual(resumed.data.revision, draft.revision);
+});
+
+test("a manual review group includes the related parcel and commits edits atomically", async (t) => {
+  const folder = await fs.mkdtemp(path.join(os.tmpdir(), "snapgis-parcel-group-"));
+  t.after(() => fs.rm(folder, { recursive: true, force: true }));
+  const square = (x: number, y: number) => ({
+    type: "Polygon",
+    coordinates: [
+      [
+        [x, y],
+        [x + 0.002, y],
+        [x + 0.002, y + 0.002],
+        [x, y + 0.002],
+        [x, y],
+      ],
+    ],
+  });
+  const features = [square(51.38, 35.68), square(51.38, 35.6815), square(52, 36)].map(
+    (geometry, id) => ({ type: "Feature", id, properties: {}, geometry }),
+  );
+  const collection = { type: "FeatureCollection", features };
+  const source = path.join(folder, "parcels.geojson");
+  await fs.writeFile(source, JSON.stringify(collection));
+  const report = analyzeGeoJson(collection, { toleranceMillimeters: 25 });
+  const group = report.issueGroups.find(({ code }) => code === "POLYGON_OVERLAP");
+  assert.ok(group);
+  assert.deepEqual(group.affectedFeatureIndexes, [0, 1]);
+
+  const owner = randomUUID();
+  const analysis = await saveAnalysis(
+    {
+      fileName: "parcels.geojson",
+      originalName: "parcels.geojson",
+      filePath: source,
+      size: 100,
+      tolerance: 25,
+    },
+    report,
+    undefined,
+    owner,
+  );
+  t.after(() => deleteAnalysis(analysis.id));
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    req.auth = { userId: req.get("X-Test-Owner") ?? owner, roles: ["user"] };
+    next();
+  });
+  app.get("/:jobId/review-groups/:groupId", getManualReviewGroup);
+  app.patch("/:jobId/review-groups/:groupId", updateManualReviewGroup);
+  app.get("/:jobId/output", previewHealedOutput);
+  app.use(globalErrorHandler);
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => server.close());
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const base = `http://127.0.0.1:${address.port}/${analysis.id}`;
+  const url = `${base}/review-groups/${encodeURIComponent(group.groupId)}`;
+  assert.equal((await fetch(url, { headers: { "X-Test-Owner": "another" } })).status, 404);
+  const response = await fetch(url);
+  assert.equal(response.status, 200);
+  const { data } = await response.json();
+  assert.deepEqual(
+    data.map((item: { featureIndex: number }) => item.featureIndex),
+    [0, 1],
+  );
+  const [left, right] = data;
+  const edited = square(51.384, 35.684);
+  const patch = (edits: unknown[]) =>
+    fetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ edits }),
+    });
+  assert.equal(
+    (
+      await patch([
+        { ...left, geometry: edited },
+        { ...right, revision: "stale", geometry: edited },
+      ])
+    ).status,
+    409,
+  );
+  assert.equal((await patch([{ ...left, featureIndex: 2, geometry: edited }])).status, 400);
+  assert.equal((await fetch(`${base}/output`)).status, 409);
+
+  const movedRight = square(51.39, 35.69);
+  assert.equal(
+    (
+      await patch([
+        { ...left, geometry: edited },
+        { ...right, geometry: movedRight },
+      ])
+    ).status,
+    200,
+  );
+  const output = await (await fetch(`${base}/output`)).json();
+  assert.deepEqual(
+    output.features.map((feature: { geometry: unknown }) => feature.geometry),
+    [edited, movedRight, features[2]?.geometry],
+  );
 });

@@ -379,11 +379,10 @@ export const saveManualReviewDecision = async (
     storeDirectory,
   );
 
-export const saveConfirmedParcelEdit = (
+export const saveConfirmedParcelEdits = (
   id: string,
   issueIndex: number,
-  featureIndex: number,
-  edit: ConfirmedParcelEdit,
+  edits: Record<number, ConfirmedParcelEdit>,
   assertCurrent: (analysis: StoredAnalysis) => void,
   storeDirectory = DEFAULT_STORE_DIRECTORY,
 ) =>
@@ -393,7 +392,7 @@ export const saveConfirmedParcelEdit = (
       assertCurrent(current);
       return {
         ...current,
-        parcelEdits: { ...current.parcelEdits, [featureIndex]: edit },
+        parcelEdits: { ...current.parcelEdits, ...edits },
         reviewDecisions: {
           ...current.reviewDecisions,
           [issueIndex]: { action: "manual-edit", updatedAt: new Date().toISOString() },
@@ -402,3 +401,11 @@ export const saveConfirmedParcelEdit = (
     },
     storeDirectory,
   );
+
+export const saveConfirmedParcelEdit = (
+  id: string,
+  issueIndex: number,
+  featureIndex: number,
+  edit: ConfirmedParcelEdit,
+  assertCurrent: (analysis: StoredAnalysis) => void,
+) => saveConfirmedParcelEdits(id, issueIndex, { [featureIndex]: edit }, assertCurrent);

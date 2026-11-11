@@ -61,7 +61,7 @@ import {
   markAnalysisProgress,
 } from "../services/analysis-store.service";
 import { GisJobData } from "../types/gis-job";
-import { isParcelType } from "../services/manual-parcel.service";
+import { isParcelType, manualReviewGroupIds } from "../services/manual-parcel.service";
 import { countAppliedRepairs } from "../services/heal-result.service";
 import {
   createHealingProgress,
@@ -1136,12 +1136,14 @@ export const gisWorker = new Worker(
     // Keep review targets out of stages that can merge or remove their output slot.
     const analysis = await getAnalysis(jobId);
     const manualParcelIndexes = new Set<number>();
-    for (const issue of analysis?.report.issues ?? []) {
-      if (issue.disposition !== "ManualReview") continue;
-      const index = issue.featureIndex;
-      if (isParcelType(geojson.features[index]?.geometry?.type)) {
-        manualParcelIndexes.add(index);
-        quarantinedFeatureIndexes.add(index);
+    const reviewGroups = analysis ? manualReviewGroupIds(analysis) : new Set<string>();
+    for (const group of analysis?.report.issueGroups ?? []) {
+      if (!reviewGroups.has(group.groupId)) continue;
+      for (const index of group.affectedFeatureIndexes) {
+        if (isParcelType(geojson.features[index]?.geometry?.type)) {
+          manualParcelIndexes.add(index);
+          quarantinedFeatureIndexes.add(index);
+        }
       }
     }
     const quarantinedFeatures: any[] = [];

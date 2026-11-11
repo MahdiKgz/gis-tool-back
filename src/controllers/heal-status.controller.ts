@@ -28,6 +28,7 @@ import {
 import { readGisFile } from "../services/gis-file.service";
 import {
   saveConfirmedParcelEdit,
+  saveConfirmedParcelEdits,
   saveManualReviewDecision,
   type ManualReviewAction,
 } from "../services/analysis-store.service";
@@ -35,6 +36,7 @@ import {
 import {
   assertParcelReviewAvailable,
   buildReviewedOutput,
+  createParcelReviewReader,
   getParcelForReview,
   hasManualParcelEdits,
   isParcelType,
@@ -488,6 +490,67 @@ export const updateManualReview = async (
   } catch (error) {
     next(error);
   }
+};
+
+const getReviewGroup = async (req: Request) => {
+  const analysis = await getStoredAnalysis(req.params.jobId, getAuthenticatedUserId(req));
+  const group = analysis.report.issueGroups.find((item) => item.groupId === req.params.groupId);
+  const issueIndex = group ? analysis.report.issues.findIndex((issue) =>
+    issue.check === group.check && issue.code === group.code && issue.disposition === "ManualReview") : -1;
+  if (!group || issueIndex < 0) throw new AppError(404, "Manual review group not found", "REVIEW_GROUP_NOT_FOUND");
+  const affected = new Set(group.affectedFeatureIndexes);
+  const parcels = analysis.report.affectedFeatureCollection.features.filter((feature) =>
+    affected.has(feature.snapgisFeatureIndex) && isParcelType(feature.geometry?.type));
+  return { analysis, issueIndex, parcels };
+};
+
+export const getManualReviewGroup = async (req: Request, res: Response) => {
+  const { analysis, parcels } = await getReviewGroup(req);
+  const readParcel = createParcelReviewReader(analysis);
+  const data = await Promise.all(parcels.map(async (feature) => {
+    try {
+      const { legacyOutputIndex: _index, ...parcel } = await readParcel(feature.snapgisFeatureIndex);
+      return parcel;
+    } catch (error) {
+      if (!(error instanceof AppError) || error.code !== "PARCEL_NOT_IN_OUTPUT") throw error;
+      return { featureIndex: feature.snapgisFeatureIndex, geometry: feature.geometry,
+        revision: null, confirmed: false, unavailable: true };
+    }
+  }));
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ success: true, data });
+};
+
+export const updateManualReviewGroup = async (req: Request, res: Response) => {
+  const { analysis, issueIndex, parcels } = await getReviewGroup(req);
+  const allowed = new Set(parcels.map((feature) => feature.snapgisFeatureIndex));
+  const items: unknown = req.body?.edits;
+  if (!Array.isArray(items) || !items.length || items.length > allowed.size ||
+      items.some((item) => !allowed.has(item?.featureIndex) || typeof item?.revision !== "string") ||
+      new Set(items.map((item) => item.featureIndex)).size !== items.length) {
+    throw new AppError(400, "Invalid parcel edits", "INVALID_PARCEL_EDITS");
+  }
+  const assertCurrent = (current: StoredAnalysis) => {
+    assertParcelReviewAvailable(current);
+    if (items.some((item) => item.revision !== parcelRevision(current, item.featureIndex))) {
+      throw new AppError(409, "Reload the group before confirming your changes", "STALE_PARCEL_EDIT");
+    }
+  };
+  assertCurrent(analysis);
+  const readParcel = createParcelReviewReader(analysis);
+  const edits = Object.fromEntries(await Promise.all(items.map(async (item) => {
+    const current = await readParcel(item.featureIndex);
+    const type = current.geometry?.type;
+    if (!isParcelType(type)) throw new AppError(409, "The review issue does not identify a polygon parcel", "ISSUE_NOT_PARCEL");
+    return [item.featureIndex, {
+      geometry: validateParcelGeometry(item.geometry, type),
+      revision: randomUUID(),
+      ...(current.legacyOutputIndex === undefined ? {} : { legacyOutputIndex: current.legacyOutputIndex }),
+    }];
+  })));
+  const updated = await saveConfirmedParcelEdits(analysis.id, issueIndex, edits, assertCurrent);
+  if (!updated) throw new AppError(404, "Dry-run job not found", "JOB_NOT_FOUND");
+  res.json({ success: true, data: { featureIndexes: Object.keys(edits).map(Number) } });
 };
 
 const getCompletedOutput = async (

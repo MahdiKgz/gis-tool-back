@@ -9,6 +9,8 @@ import {
   downloadHealedOutput,
   getHealStatus,
   getManualReviewParcel,
+  getManualReviewGroup,
+  updateManualReviewGroup,
   previewOriginalInput,
   previewHealedOutput,
   streamHealEvents,
@@ -29,6 +31,8 @@ router.get("/:jobId/issues", getAnalysisIssues);
 router.get("/:jobId/original", previewOriginalInput);
 router.get("/:jobId/output", previewHealedOutput);
 router.get("/:jobId/download", downloadHealedOutput);
+router.get("/:jobId/review-groups/:groupId", getManualReviewGroup);
+router.patch("/:jobId/review-groups/:groupId", updateManualReviewGroup);
 router.get("/:jobId/reviews/:issueIndex", getManualReviewParcel);
 router.patch("/:jobId/reviews/:issueIndex", updateManualReview);
 

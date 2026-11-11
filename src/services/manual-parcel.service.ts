@@ -208,38 +208,77 @@ function findLegacyParcelIndex(
   return match.index;
 }
 
-export async function getParcelForReview(analysis: StoredAnalysis, index: number) {
+export const manualReviewGroupIds = (analysis: StoredAnalysis) =>
+  new Set(
+    analysis.report.issues
+      .filter((issue) => issue.disposition === "ManualReview")
+      .map((issue) => `${issue.check}:${issue.code}`),
+  );
+
+export function createParcelReviewReader(analysis: StoredAnalysis) {
   assertParcelReviewAvailable(analysis);
-  const feature = originalParcel(analysis, index);
-  const revision = parcelRevision(analysis, index);
-  const saved = analysis.parcelEdits?.[index];
-  if (analysis.healStatus !== "completed") {
-    return { geometry: saved?.geometry ?? feature.geometry, revision, confirmed: Boolean(saved) };
-  }
-  const { features } = await readHealedCollection(analysis);
-  const mapping = analysis.healResult?.manualParcelOutputIndexes;
-  const outputIndex = mapping?.[index];
-  if (mapping) {
-    const geometry = outputIndex === undefined ? undefined : features[outputIndex]?.geometry;
-    if (!isParcelType(geometry?.type)) throw unavailableParcel();
-    return { geometry: saved?.geometry ?? geometry, revision, confirmed: Boolean(saved) };
-  }
-  const legacyOutputIndex =
-    saved?.legacyOutputIndex ??
-    findLegacyParcelIndex(
-      (await readCollection(analysis.jobData.filePath, analysis.jobData.originalName)).features,
+  const originals = new Map(
+    analysis.report.affectedFeatureCollection.features.map((feature) => [
+      feature.snapgisFeatureIndex,
       feature,
-      features,
-    );
-  const geometry = features[legacyOutputIndex]?.geometry;
-  if (!isParcelType(geometry?.type)) throw unavailableParcel();
-  return {
-    geometry: saved?.geometry ?? geometry,
-    revision,
-    confirmed: Boolean(saved),
-    legacyOutputIndex,
+    ]),
+  );
+  let healed: ReturnType<typeof readHealedCollection> | undefined;
+  let source: ReturnType<typeof readCollection> | undefined;
+  return async (index: number) => {
+    const feature = originals.get(index);
+    if (!feature || !isParcelType(feature.geometry?.type)) {
+      throw new AppError(409, "The review issue does not identify a polygon parcel", "ISSUE_NOT_PARCEL");
+    }
+    const revision = parcelRevision(analysis, index);
+    const saved = analysis.parcelEdits?.[index];
+    const result = {
+      featureIndex: index,
+      featureId: getFeatureId(feature),
+      revision,
+      confirmed: Boolean(saved),
+    };
+    if (analysis.healStatus !== "completed")
+      return {
+        ...result,
+        geometry: saved?.geometry ?? feature.geometry,
+        outputIndex: index,
+        legacyOutputIndex: undefined,
+      };
+
+    const { features } = await (healed ??= readHealedCollection(analysis));
+    const outputIndex = analysis.healResult?.manualParcelOutputIndexes?.[index];
+    if (outputIndex !== undefined) {
+      const geometry = features[outputIndex]?.geometry;
+      if (!isParcelType(geometry?.type)) throw unavailableParcel();
+      return {
+        ...result,
+        geometry: saved?.geometry ?? geometry,
+        outputIndex,
+        legacyOutputIndex: undefined,
+      };
+    }
+    const legacyOutputIndex =
+      saved?.legacyOutputIndex ??
+      findLegacyParcelIndex(
+        (await (source ??= readCollection(analysis.jobData.filePath, analysis.jobData.originalName)))
+          .features,
+        feature,
+        features,
+      );
+    const geometry = features[legacyOutputIndex]?.geometry;
+    if (!isParcelType(geometry?.type)) throw unavailableParcel();
+    return {
+      ...result,
+      geometry: saved?.geometry ?? geometry,
+      outputIndex: legacyOutputIndex,
+      legacyOutputIndex,
+    };
   };
 }
+
+export const getParcelForReview = (analysis: StoredAnalysis, index: number) =>
+  createParcelReviewReader(analysis)(index);
 
 export const hasManualParcelEdits = (analysis: StoredAnalysis) =>
   Object.keys(analysis.parcelEdits ?? {}).length > 0;
@@ -255,7 +294,10 @@ export async function buildReviewedOutput(analysis: StoredAnalysis) {
   const mapping = analysis.healResult?.manualParcelOutputIndexes;
   const edits = Object.entries(analysis.parcelEdits ?? {});
   const legacySource =
-    completed && !mapping && edits.some(([, edit]) => edit.legacyOutputIndex === undefined)
+    completed &&
+    edits.some(
+      ([index, edit]) => mapping?.[Number(index)] === undefined && edit.legacyOutputIndex === undefined,
+    )
       ? (await readCollection(analysis.jobData.filePath, analysis.jobData.originalName)).features
       : undefined;
   delete data.bbox;

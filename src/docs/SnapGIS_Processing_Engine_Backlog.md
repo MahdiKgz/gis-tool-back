@@ -45,7 +45,7 @@
 
 ### Infrastructure
 
--   [x] User-requested on-map parcel editing for manual-review issues, revision-checked confirmation, and reviewed preview, download and format export. See [Dry-run and heal API workflow](API_Dry_Run_Heal_Workflow.md).
+-   [x] User-requested simultaneous on-map editing for all parcels on a manual-review card, direct dragging of parcels, edges and vertices, atomic confirmation, and reviewed preview, download and export. See [Dry-run and heal API workflow](API_Dry_Run_Heal_Workflow.md).
 
 -   [x] User-requested account email verification and password recovery. See [Email verification and password recovery](Account_Recovery.md).
 

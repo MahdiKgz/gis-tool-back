@@ -251,8 +251,16 @@ The server rejects invalid polygon rings, stale revisions and changes during
 queued or active healing. The `approved` and `rejected` actions record review
 decisions. They leave the output geometry as it was.
 
+The map opens all polygon parcels on a manual-review card with
+`GET /heal/:jobId/review-groups/:groupId`. The response includes related
+parcels and their independent revisions. Submit changed parcels together
+with `PATCH /heal/:jobId/review-groups/:groupId` and
+`{ "edits": [{ "featureIndex": 0, "revision": "...", "geometry": { ... } }] }`.
+The batch is applied atomically. The editor keeps the group's parcels
+visible while the user drags individual parcels, edges or vertices.
+
 Confirmed geometry is stored per source parcel. During automatic healing,
-polygons marked for manual review retain their own output slot and are
+polygon parcels in manual-review groups retain their own output slot and are
 excluded from later polygon merge, deletion and snapping stages. The
 confirmed geometry replaces that parcel in preview, download and export.
 For legacy completed jobs, editing is available when the original parcel
