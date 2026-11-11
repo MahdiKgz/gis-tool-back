@@ -1,3 +1,4 @@
+import { cadLayer } from "../shared/cad-layer";
 import area from "@turf/area";
 import booleanIntersects from "@turf/boolean-intersects";
 import { featureCollection, polygon } from "@turf/helpers";
@@ -183,6 +184,7 @@ export const findSliverAdjacency = (
 ): Map<string, SliverAdjacencyEvidence> => {
   const result = new Map<string, SliverAdjacencyEvidence>();
   if (!geojson.features || findings.length === 0) return result;
+  const layers = geojson.features.map(cadLayer);
   const { componentMetrics, featureAreas, segments } =
     collectComponents(geojson);
   const spatialIndex = new RBush<IndexedExteriorSegment>();
@@ -206,6 +208,7 @@ export const findSliverAdjacency = (
       for (const second of candidates) {
         if (
           second.featureIndex === finding.featureIndex ||
+          layers[second.featureIndex] !== layers[finding.featureIndex] ||
           second.componentKey === first.componentKey
         ) {
           continue;

@@ -22,7 +22,7 @@ export const buildPolygonOverlapReport = (
     issues: detection.findings.map((finding) => ({
       ...finding,
       status: "Unresolved",
-      recommendedAction: "ManualReview",
+      recommendedAction: finding.repairable ? "AutoRepair" : "ManualReview",
     })),
   };
 };

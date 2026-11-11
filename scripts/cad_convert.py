@@ -8,6 +8,7 @@ import sys
 import tempfile
 import warnings
 from cad_warnings import CadWarnings
+from dxf_layers import decode_layer_name, dxf_text_encoding, text_dxf_layers
 
 
 def fail(code, message):
@@ -60,6 +61,19 @@ def vertex_count(geometry):
     return visit(geometry["coordinates"])
 
 
+def drawing_layer(driver, layer_name, properties):
+    layer = properties.get("Layer")
+    if isinstance(layer, str) and layer:
+        return decode_layer_name(layer) if driver == "DXF" else layer
+    level_name = properties.get("LevelName")
+    if driver in ("DGN", "DGNv8") and isinstance(level_name, str) and level_name:
+        return level_name
+    level = properties.get("Level")
+    if driver in ("DGN", "DGNv8") and level is not None:
+        return str(level) if driver == "DGN" else f"{layer_name}${level}"
+    return str(layer_name)
+
+
 def convert(source, target, source_crs, dwgread, diagnostics):
     try:
         crs = coordinate_system(source_crs)
@@ -73,7 +87,9 @@ def convert(source, target, source_crs, dwgread, diagnostics):
     suffix = source.suffix.lower()
     with tempfile.TemporaryDirectory(prefix="snapgis-cad-") as scratch:
         dataset = source
-        allowed_drivers = {"DGN", "DGNv8"} if suffix == ".dgn" else {"DWG", "CAD"}
+        allowed_drivers = {".dgn": {"DGN", "DGNv8"}, ".dwg": {"DWG", "CAD"}, ".dxf": {"DXF"}}.get(suffix)
+        if allowed_drivers is None:
+            fail("INVALID_CAD_FILE", "Only DWG, DGN and DXF inputs are accepted.")
         if suffix == ".dgn":
             with source.open("rb") as handle:
                 is_v8 = handle.read(8) == bytes.fromhex("d0cf11e0a1b11ae1")
@@ -97,9 +113,6 @@ def convert(source, target, source_crs, dwgread, diagnostics):
             if dataset.stat().st_size > MAX_OUTPUT_BYTES:
                 fail("CAD_OUTPUT_TOO_LARGE", "The converted drawing exceeds the server size limit.")
             allowed_drivers = {"DXF"}
-        elif suffix != ".dwg":
-            if suffix != ".dgn":
-                fail("INVALID_CAD_FILE", "Only DWG and DGN inputs are accepted by this converter.")
 
         pyogrio.set_gdal_config_options({
             "DWG_CLOSED_LINE_AS_POLYGON": "TRUE",
@@ -107,10 +120,13 @@ def convert(source, target, source_crs, dwgread, diagnostics):
             "OGR_ARC_STEPSIZE": "0.1",
             "PROJ_NETWORK": "OFF",
         })
+        if dataset.suffix.lower() == ".dxf":
+            pyogrio.set_gdal_config_options({"DXF_ENCODING": dxf_text_encoding(dataset)})
         layers = pyogrio.list_layers(dataset)
         if len(layers) > 256:
             fail("CAD_OUTPUT_TOO_LARGE", "The drawing contains too many layers.")
         features = []
+        layer_catalog = dict.fromkeys(text_dxf_layers(dataset)) if dataset.suffix.lower() == ".dxf" else {}
         vertices = 0
         for layer_name, geometry_type in layers:
             if geometry_type is None:
@@ -137,9 +153,14 @@ def convert(source, target, source_crs, dwgread, diagnostics):
                     vertices += vertex_count(geometry)
                     if vertices > MAX_VERTICES or len(features) >= MAX_FEATURES:
                         fail("CAD_OUTPUT_TOO_LARGE", "The drawing exceeds the server geometry limit.")
+                    properties = {str(name): scalar(fields[column][index])
+                                  for column, name in enumerate(meta["fields"])}
+                    actual_layer = drawing_layer(info["driver"], layer_name, properties)
+                    layer_catalog[actual_layer] = None
                     features.append({
                         "type": "Feature", "id": f"{layer_name}:{fids[index]}",
-                        "properties": {str(name): scalar(fields[column][index]) for column, name in enumerate(meta["fields"])},
+                        "properties": properties,
+                        "snapgisCadLayer": actual_layer,
                         "geometry": geometry,
                         "snapgisCad": {"layer": str(layer_name), "entityId": str(fids[index])},
                     })
@@ -151,7 +172,7 @@ def convert(source, target, source_crs, dwgread, diagnostics):
         if diagnostics.unsupported:
             fail("CAD_CONVERSION_WARNING", "The CAD reader reported an unsupported warning; the drawing was not accepted.")
         data = {"type": "FeatureCollection", "features": features,
-                "snapgisCadImport": diagnostics.report(source_crs)}
+                "snapgisCadImport": diagnostics.report(source_crs), "snapgisCadLayers": list(layer_catalog)}
         encoded = json.dumps(data, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
         if len(encoded.encode("utf-8")) > MAX_OUTPUT_BYTES:
             fail("CAD_OUTPUT_TOO_LARGE", "The converted drawing exceeds the server size limit.")

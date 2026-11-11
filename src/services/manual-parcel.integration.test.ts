@@ -8,6 +8,7 @@ import test from "node:test";
 import express from "express";
 import { globalErrorHandler } from "../middlewares/errorHandler";
 import { deleteAnalysis, markAnalysisCompleted, saveAnalysis } from "./analysis-store.service";
+import { buildLinework } from "./linework.service";
 import { conversionOutput } from "./conversion.service";
 import { analyzeGeoJson } from "./dry-run.service";
 import { createConversionHandlers } from "../controllers/conversion.controller";
@@ -83,10 +84,10 @@ test("a confirmed parcel edit survives reordered healing output and is used for 
       enqueue: async () => assert.fail("Small output must export synchronously"),
       convert: async (task) => {
         assert.equal(task.sourceCRS, "EPSG:4326");
-        assert.deepEqual(JSON.parse(await fs.readFile(task.source, "utf8")).features, [
-          other,
-          { ...parcel, geometry: repaired },
-        ]);
+        assert.deepEqual(
+          JSON.parse(await fs.readFile(task.source, "utf8")).features,
+          buildLinework({ features: [other, { ...parcel, geometry: repaired }] }).features,
+        );
         await fs.copyFile(task.source, conversionOutput(task));
         return { features: 2, sourceCRS: "EPSG:4326", targetCRS: "EPSG:4326", warnings: [] };
       },
@@ -147,7 +148,10 @@ test("a confirmed parcel edit survives reordered healing output and is used for 
   await markAnalysisCompleted(analysis.id, { ...result, manualParcelOutputIndexes: { 0: 1 } });
   const download = await load("download");
   assert.match(download.headers.get("Content-Disposition") ?? "", /cleaned-parcels.geojson/);
-  assert.deepEqual((await download.json()).features, [other, { ...parcel, geometry: repaired }]);
+  assert.deepEqual(
+    (await download.json()).features,
+    buildLinework({ features: [other, { ...parcel, geometry: repaired }] }).features,
+  );
   const exported = await fetch(`${url}/export`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

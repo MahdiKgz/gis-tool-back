@@ -1,3 +1,5 @@
+import { cadLayer } from "../shared/cad-layer";
+import { polygonPlane } from "./plane";
 import area from "@turf/area";
 import bbox from "@turf/bbox";
 import { featureCollection, polygon } from "@turf/helpers";
@@ -98,6 +100,8 @@ export const detectPolygonOverlaps = (
     };
   }
 
+  const layers = geojson.features.map(cadLayer);
+  const planes = geojson.features.map((feature) => polygonPlane(feature?.geometry));
   const polygons = collectPolygons(geojson);
   const spatialIndex = new RBush<IndexedPolygon>();
   spatialIndex.load(
@@ -120,7 +124,7 @@ export const detectPolygonOverlaps = (
     for (const candidate of spatialIndex.search({ minX, minY, maxX, maxY })) {
       if (candidate.componentIndex <= first.componentIndex) continue;
       const second = polygons[candidate.componentIndex]!;
-      if (second.featureIndex === first.featureIndex) continue;
+      if (second.featureIndex === first.featureIndex || layers[first.featureIndex] !== layers[second.featureIndex]) continue;
       candidatePairsChecked++;
 
       try {
@@ -135,6 +139,8 @@ export const detectPolygonOverlaps = (
         ) {
           continue;
         }
+        const firstPlane = planes[first.featureIndex];
+        const secondPlane = planes[second.featureIndex];
         findings.push({
           code: "POLYGON_OVERLAP",
           featureIndex: first.featureIndex,
@@ -153,7 +159,12 @@ export const detectPolygonOverlaps = (
           overlapRatio:
             overlapAreaM2 / Math.min(first.areaM2, second.areaM2),
           overlapBbox: bbox(overlap) as [number, number, number, number],
-          repairable: false,
+          repairable: first.geometryCollectionPath.length === 0 &&
+            second.geometryCollectionPath.length === 0 &&
+            firstPlane !== null && firstPlane !== undefined &&
+            firstPlane.length === secondPlane?.length &&
+            firstPlane.every((value, index) => value === secondPlane[index]) &&
+            overlapAreaM2 < Math.max(first.areaM2, second.areaM2) * (1 - 1e-9),
         });
       } catch {
         // Invalid polygon relationships are reported by earlier checks.

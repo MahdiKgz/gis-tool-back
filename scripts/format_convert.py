@@ -8,6 +8,8 @@ import sys
 import warnings
 import zipfile
 
+from dxf_layers import decode_layer_name, dxf_text_encoding, text_dxf_layers
+
 
 def fail(code, message):
     raise ConversionError(code, message)
@@ -84,11 +86,15 @@ def load_input(source, input_format, source_crs, scratch):
     features = []
     ids = []
     detected = None
+    layers = []
     if input_format == "geojson":
         with source.open(encoding="utf-8-sig") as handle:
             data = json.load(handle, parse_constant=lambda value: fail("INVALID_CONVERSION_FILE", "Non-finite JSON number."))
         if not isinstance(data, dict):
             fail("INVALID_CONVERSION_FILE", "Expected a GeoJSON object.")
+        layers = data.get("snapgisCadLayers", [])
+        if not isinstance(layers, list) or any(not isinstance(layer, str) for layer in layers):
+            fail("INVALID_CONVERSION_FILE", "Invalid drawing layer catalog.")
         if "crs" in data:
             try:
                 detected = data["crs"]["properties"]["name"]
@@ -112,6 +118,8 @@ def load_input(source, input_format, source_crs, scratch):
             ids.append(feature.get("id"))
     else:
         dataset = unpack_shapefile(source, scratch) if input_format == "shapefile" else source
+        if input_format == "dxf":
+            pyogrio.set_gdal_config_options({"DXF_ENCODING": dxf_text_encoding(dataset)})
         info = pyogrio.read_info(dataset)
         expected_driver = "ESRI Shapefile" if input_format == "shapefile" else "DXF"
         if info["driver"] != expected_driver:
@@ -119,6 +127,8 @@ def load_input(source, input_format, source_crs, scratch):
         if len(pyogrio.list_layers(dataset)) != 1:
             fail("INVALID_CONVERSION_FILE", "Upload a single dataset.")
         detected = info.get("crs")
+        if input_format == "dxf":
+            layers = text_dxf_layers(dataset)
         if input_format == "dxf" and not source_crs:
             fail("SOURCE_CRS_REQUIRED", "DXF requires an explicit source CRS.")
         offset = 0
@@ -132,17 +142,19 @@ def load_input(source, input_format, source_crs, scratch):
                 if wkb is None:
                     fail("INVALID_CONVERSION_FILE", "Features without geometry are not supported.")
                 props = {str(name): scalar(fields[column][index]) for column, name in enumerate(meta["fields"])}
+                if input_format == "dxf" and isinstance(props.get("Layer"), str):
+                    props["Layer"] = decode_layer_name(props["Layer"])
                 features.append((from_wkb(wkb), props))
             offset += len(geometries)
             if len(geometries) < 5000:
                 break
-    if not features:
+    if not features and not layers:
         fail("CONVERSION_NO_GEOMETRY", "The file contains no convertible features.")
     resolved = source_crs or detected
     if not resolved:
         fail("SOURCE_CRS_REQUIRED", "Source CRS is missing. Include a PRJ file or specify sourceCRS.")
     try:
-        return features, coordinate_system(resolved), ids
+        return features, coordinate_system(resolved), ids, layers
     except Exception:
         fail("INVALID_SOURCE_CRS", "The source CRS is not supported.")
 
@@ -156,9 +168,11 @@ def validate_geometry(geometry):
     return len(coords)
 
 
-def write_geojson(output, features, crs, ids):
+def write_geojson(output, features, crs, ids, layers):
     with output.open("w", encoding="utf-8") as handle:
         handle.write('{"type":"FeatureCollection",')
+        if layers:
+            handle.write('"snapgisCadLayers":' + json.dumps(layers, ensure_ascii=False) + ',')
         if not crs.equals(coordinate_system("EPSG:4326")):
             handle.write('"crs":' + json.dumps({"type": "name", "properties": {"name": crs.to_string()}}) + ',')
         handle.write('"features":[')
@@ -221,46 +235,66 @@ def write_shape(output, features, crs, scratch, notices):
         archive.write(scratch / 'conversion-metadata.json', 'conversion-metadata.json')
 
 
-def write_dxf(output, features, notices):
+def write_dxf(output, features, notices, catalog):
     notices.append("DXF_GEOMETRY_ONLY")
     if any(geometry.geom_type in ('Polygon', 'MultiPolygon') for geometry, _ in features):
         notices.append("DXF_POLYGON_RINGS_AS_POLYLINES")
-    with output.open('w', encoding='ascii', newline='\n') as handle:
+
+    def feature_layer(properties):
+        value = properties.get("Layer")
+        return value if isinstance(value, str) and value else "0"
+
+    layers = list(dict.fromkeys(["0", *catalog, *(feature_layer(props) for _, props in features)]))
+    if any(not layer or re.search(r"[\x00-\x1f\x7f]", layer) for layer in layers):
+        fail("INVALID_CONVERSION_FILE", "A drawing layer name cannot be represented in DXF.")
+
+    with output.open("w", encoding="utf-8", newline="\n") as handle:
         def pairs(*values):
-            handle.write('\n'.join(str(value) for value in values) + '\n')
-        pairs(0,'SECTION',2,'HEADER',9,'$ACADVER',1,'AC1015',0,'ENDSEC',0,'SECTION',2,'ENTITIES')
-        def line(coords, closed):
+            handle.write("\n".join(str(value) for value in values) + "\n")
+
+        pairs(0, "SECTION", 2, "HEADER", 9, "$ACADVER", 1, "AC1021", 0, "ENDSEC")
+        pairs(0, "SECTION", 2, "TABLES", 0, "TABLE", 2, "LAYER", 70, len(layers))
+        for layer in layers:
+            pairs(0, "LAYER", 100, "AcDbSymbolTableRecord", 100, "AcDbLayerTableRecord",
+                  2, layer, 70, 0, 62, 7, 6, "Continuous")
+        pairs(0, "ENDTAB", 0, "ENDSEC", 0, "SECTION", 2, "ENTITIES")
+
+        def line(coords, closed, layer):
             coords = list(coords)
             if closed and coords[0] == coords[-1]:
                 coords.pop()
             if len(coords[0]) == 3:
-                pairs(0,'POLYLINE',8,'0',66,1,70,8 + int(closed),10,0,20,0,30,0)
-                for x,y,z in coords:
-                    pairs(0,'VERTEX',8,'0',70,32,10,x,20,y,30,z)
-                pairs(0,'SEQEND',8,'0')
+                pairs(0, "POLYLINE", 8, layer, 66, 1, 70, 8 + int(closed), 10, 0, 20, 0, 30, 0)
+                for x, y, z in coords:
+                    pairs(0, "VERTEX", 8, layer, 70, 32, 10, x, 20, y, 30, z)
+                pairs(0, "SEQEND", 8, layer)
             else:
-                pairs(0,'LWPOLYLINE',100,'AcDbEntity',8,'0',100,'AcDbPolyline',90,len(coords),70,int(closed))
-                for x,y in coords:
-                    pairs(10,x,20,y)
-        def entity(geom):
+                pairs(0, "LWPOLYLINE", 100, "AcDbEntity", 8, layer, 100, "AcDbPolyline",
+                      90, len(coords), 70, int(closed))
+                for x, y in coords:
+                    pairs(10, x, 20, y)
+
+        def entity(geom, layer):
             kind = geom.geom_type
-            if kind.startswith('Multi'):
+            if kind.startswith("Multi"):
                 for child in geom.geoms:
-                    entity(child)
-            elif kind == 'Point':
+                    entity(child, layer)
+            elif kind == "Point":
                 coords = geom.coords[0]
-                pairs(0,'POINT',100,'AcDbEntity',8,'0',100,'AcDbPoint',10,coords[0],20,coords[1],30,coords[2] if len(coords)>2 else 0)
-            elif kind == 'LineString':
-                line(geom.coords, geom.is_ring)
-            elif kind == 'Polygon':
-                line(geom.exterior.coords, True)
+                pairs(0, "POINT", 100, "AcDbEntity", 8, layer, 100, "AcDbPoint",
+                      10, coords[0], 20, coords[1], 30, coords[2] if len(coords) > 2 else 0)
+            elif kind == "LineString":
+                line(geom.coords, geom.is_closed, layer)
+            elif kind == "Polygon":
+                line(geom.exterior.coords, True, layer)
                 for ring in geom.interiors:
-                    line(ring.coords, True)
+                    line(ring.coords, True, layer)
             else:
                 fail("UNSUPPORTED_CONVERSION_GEOMETRY", "Unsupported DXF geometry.")
-        for geom, _ in features:
-            entity(geom)
-        pairs(0,'ENDSEC',0,'EOF')
+
+        for geometry, properties in features:
+            entity(geometry, feature_layer(properties))
+        pairs(0, "ENDSEC", 0, "EOF")
 
 
 def convert(config):
@@ -270,7 +304,7 @@ def convert(config):
     pyogrio.set_gdal_config_options({"PROJ_NETWORK": "OFF", "DXF_CLOSED_LINE_AS_POLYGON": "TRUE", "OGR_ARC_STEPSIZE": "0.1"})
     scratch = output.parent / 'work'
     scratch.mkdir(exist_ok=True)
-    features, source_crs, ids = load_input(source, config['inputFormat'], config.get('sourceCRS'), scratch)
+    features, source_crs, ids, layers = load_input(source, config['inputFormat'], config.get('sourceCRS'), scratch)
     try:
         target_crs = coordinate_system(config.get('targetCRS') or source_crs)
         transformer = coordinate_transformer(source_crs, target_crs)
@@ -302,13 +336,13 @@ def convert(config):
     if target_format != 'geojson' and any(value is not None for value in ids):
         notices.append('FEATURE_IDS_NOT_RETAINED')
     if target_format == 'geojson':
-        write_geojson(output, converted, target_crs, ids)
+        write_geojson(output, converted, target_crs, ids, layers)
         if not target_crs.equals(coordinate_system('EPSG:4326')):
             notices.append('PROJECTED_GEOJSON_LEGACY_CRS')
     elif target_format == 'shapefile':
         write_shape(output, converted, target_crs, scratch, notices)
     elif target_format == 'dxf':
-        write_dxf(output, converted, notices)
+        write_dxf(output, converted, notices, layers)
     else:
         fail('UNSUPPORTED_CONVERSION_FORMAT', 'Unsupported output format.')
     if output.stat().st_size > MAX_OUTPUT:

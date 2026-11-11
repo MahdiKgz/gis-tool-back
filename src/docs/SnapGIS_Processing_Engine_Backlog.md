@@ -23,7 +23,7 @@
 -   [x] Self Intersection Detection and Dry-Run Reporting
 -   [x] Self Intersection Repair
 -   [x] Polygon Overlap Detection
--   [x] Multi-pass Overlap Repair
+-   [x] Subtract shared polygon area from both parcels after gap repair
 -   [x] Gap Detection, Dry-Run Reporting, and Repair Integration
 -   [x] Sliver Detection, Dry-Run Reporting, and Minimum-Area Repair
 -   [x] Undershoot Detection, Dry-Run Reporting, and Repair
@@ -44,6 +44,8 @@
 -   [x] Coordinate Precision and Floating-Point Validation
 
 ### Infrastructure
+
+-   [x] User-requested healed MultiLineString downloads, DXF polyline exports, and CAD topology scoped by original drawing layers. See [Dry-run and heal API workflow](API_Dry_Run_Heal_Workflow.md).
 
 -   [x] User-requested simultaneous on-map editing for all parcels on a manual-review card, direct dragging of parcels, edges and vertices, atomic confirmation, and reviewed preview, download and export. See [Dry-run and heal API workflow](API_Dry_Run_Heal_Workflow.md).
 

@@ -1,6 +1,7 @@
-import { objectStorageEnabled, isObjectReference, storedStat, copyStoredFile, materializeStoredFile, putStoredFile } from "../services/object-storage.service";
+import { objectStorageEnabled, isObjectReference, storedStat, materializeStoredFile, putStoredFile } from "../services/object-storage.service";
 import { conversionObjectKey, conversionStoredOutput } from "../services/conversion.service";
 import { getStoredAnalysis } from "./heal-status.controller";
+import { buildLinework } from "../services/linework.service";
 import { buildReviewedOutput, hasManualParcelEdits } from "../services/manual-parcel.service";
 import { resolveHealedOutput } from "../services/heal-result.service";
 import fs from "node:fs/promises";
@@ -168,24 +169,23 @@ export const createConversionHandlers = (deps: Dependencies = dependencies) => {
       const created = await createConversionDirectory();
       directory = created.directory;
       const source = path.join(directory, "input.geojson");
-      let size: number;
-      if (hasReviewedOutput) {
-        const geojson = JSON.stringify(await buildReviewedOutput(analysis));
-        size = Buffer.byteLength(geojson);
-        if (size <= maxBytes) await fs.writeFile(source, geojson);
-      } else {
-        const filePath = output!.filePath;
-        const info = await storedStat(filePath).catch((error) => {
+      let originalSize = 0;
+      if (output) {
+        const info = await storedStat(output.filePath).catch((error) => {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
           throw new AppError(410, "The healed output has expired.", "CONVERSION_EXPIRED");
         });
-        size = info.isFile() ? info.size : Infinity;
-        if (size <= maxBytes) await copyStoredFile(filePath, source, maxBytes);
+        if (!info.isFile() || info.size > maxBytes)
+          throw new AppError(413, "The output exceeds conversion capacity.", "CONVERSION_LIMIT_EXCEEDED");
+        originalSize = info.size;
       }
+      const geojson = JSON.stringify(buildLinework(await buildReviewedOutput(analysis)));
+      const size = Buffer.byteLength(geojson);
       if (size > maxBytes)
         throw new AppError(413, "The output exceeds conversion capacity.", "CONVERSION_LIMIT_EXCEEDED");
+      await fs.writeFile(source, geojson);
       const task: ConversionTask = { ...options, ...created, source, userId };
-      await execute(task, size, res, abort.signal, () => {
+      await execute(task, Math.max(size, originalSize), res, abort.signal, () => {
         queued = true;
       });
     } catch (error) {

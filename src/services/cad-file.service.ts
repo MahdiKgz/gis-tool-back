@@ -5,7 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import { AppError } from "../middlewares/errorHandler";
 
-export const isCadFile = (name: string): boolean => /\.(dwg|dgn)$/i.test(name);
+export const isCadFile = (name: string): boolean => /\.(dwg|dgn|dxf)$/i.test(name);
 export const normalizedCadPath = (source: string): string => `${source}.normalized.geojson`;
 export const parseCadSourceCrs = (value: unknown): string => {
   if (typeof value !== "string" || !/^EPSG:[1-9]\d{3,5}$/i.test(value.trim())) {

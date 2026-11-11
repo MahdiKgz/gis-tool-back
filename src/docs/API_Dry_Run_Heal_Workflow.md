@@ -13,7 +13,7 @@ Content-Type: multipart/form-data
 Form fields:
 
 - `name` (required): a user-facing dataset name between 2 and 150 characters
-- `file` (required): `.geojson`, `.json`, `.kml`, `.kmz`, `.shp`, `.zip`, `.dwg`, or `.dgn`
+- `file` (required): `.geojson`, `.json`, `.kml`, `.kmz`, `.shp`, `.zip`, `.dwg`, `.dgn`, or `.dxf`
 - `tolerance` (optional): positive millimeters, default `25`
 - `sourceCrs` (required for DWG/DGN): actual source EPSG code, e.g. `EPSG:32639`
 
@@ -233,12 +233,21 @@ GET /heal/:jobId/original
 GET /heal/:jobId/download
 ```
 
-`output` serves the healed GeoJSON inline for map rendering. `download`
-serves the same bytes with an attachment disposition and the cleaned file
-name. These endpoints use the completed output or, when there are confirmed
-parcel edits and automatic healing has not completed, the original normalized
-input with those edits. The selected CRS and format export endpoint uses the
-same geometry. Expired storage returns `410 OUTPUT_FILE_EXPIRED`.
+`output` serves the healed GeoJSON with polygon geometry for map rendering
+and editing. `download` returns a GeoJSON attachment containing polygon rings
+and line features as `MultiLineString`. Point entities retain their geometry.
+The format and CRS export endpoint uses the same linework. In DXF, each line
+is a polyline on its original named layer, and the retained layer catalog
+includes empty layers read from text DXF. DXF export does not reproduce CAD
+styles or layout settings. Source layer assignment is available as `Layer`
+in exported GeoJSON. Expired storage returns `410 OUTPUT_FILE_EXPIRED`.
+
+Automatic overlap repair subtracts shared area from both overlapping parcels
+after gap repair. Features that are completely covered by a larger parcel
+have no remaining area and are omitted. Coincident boundaries and geometry
+whose elevation cannot be preserved stay available for review. CAD overlap,
+gap, sliver adjacency, and line snapping evaluate features within each
+drawing layer independently.
 
 `original` converts the retained source upload to GeoJSON without changing it,
 allowing the map to overlay the pre-healing geometry.
@@ -257,7 +266,8 @@ parcels and their independent revisions. Submit changed parcels together
 with `PATCH /heal/:jobId/review-groups/:groupId` and
 `{ "edits": [{ "featureIndex": 0, "revision": "...", "geometry": { ... } }] }`.
 The batch is applied atomically. The editor keeps the group's parcels
-visible while the user drags individual parcels, edges or vertices.
+visible while the user drags individual parcels, edges or vertices. It suggests
+an alignment axis automatically during near-horizontal or near-vertical drags.
 
 Confirmed geometry is stored per source parcel. During automatic healing,
 polygon parcels in manual-review groups retain their own output slot and are

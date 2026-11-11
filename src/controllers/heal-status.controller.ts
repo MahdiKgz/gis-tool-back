@@ -25,6 +25,7 @@ import {
   parseHealingProgress,
   type HealingProgress,
 } from "../services/heal-progress.service";
+import { buildLinework } from "../services/linework.service";
 import { readGisFile } from "../services/gis-file.service";
 import {
   saveConfirmedParcelEdit,
@@ -496,7 +497,8 @@ const getReviewGroup = async (req: Request) => {
   const analysis = await getStoredAnalysis(req.params.jobId, getAuthenticatedUserId(req));
   const group = analysis.report.issueGroups.find((item) => item.groupId === req.params.groupId);
   const issueIndex = group ? analysis.report.issues.findIndex((issue) =>
-    issue.check === group.check && issue.code === group.code && issue.disposition === "ManualReview") : -1;
+    issue.check === group.check && issue.code === group.code &&
+    (issue.disposition === "ManualReview" || issue.code === "POLYGON_OVERLAP")) : -1;
   if (!group || issueIndex < 0) throw new AppError(404, "Manual review group not found", "REVIEW_GROUP_NOT_FOUND");
   const affected = new Set(group.affectedFeatureIndexes);
   const parcels = analysis.report.affectedFeatureCollection.features.filter((feature) =>
@@ -617,19 +619,9 @@ export const downloadHealedOutput = async (
   try {
     const analysis = await getStoredAnalysis(req.params.jobId, getAuthenticatedUserId(req));
     res.setHeader("Cache-Control", "no-store");
-    if (hasManualParcelEdits(analysis)) {
-      const data = await buildReviewedOutput(analysis);
-      res.attachment(manualParcelFileName(analysis)).type("application/geo+json").json(data);
-      return;
-    }
-    const output = await getCompletedOutput(analysis);
-    if (isObjectReference(output.filePath)) {
-      res.redirect(302, await signedDownload(output.filePath, output.fileName));
-      return;
-    }
-    res.download(output.filePath, output.fileName, (error) => {
-      if (error && !res.headersSent) next(error);
-    });
+    if (!hasManualParcelEdits(analysis)) await getCompletedOutput(analysis);
+    const data = buildLinework(await buildReviewedOutput(analysis));
+    res.attachment(manualParcelFileName(analysis)).type("application/geo+json").json(data);
   } catch (error) {
     next(error);
   }

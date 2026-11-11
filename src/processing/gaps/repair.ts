@@ -1,3 +1,4 @@
+import { cadLayer } from "../shared/cad-layer";
 import area from "@turf/area";
 import { featureCollection, polygon } from "@turf/helpers";
 import intersect from "@turf/intersect";
@@ -336,7 +337,8 @@ const candidateIntroducesOverlap = (
     const bounds = polygonFeatureBounds(candidate, featureIndex);
     if (!bounds) return true;
     for (const neighbor of spatialIndex.search(bounds)) {
-      if (neighbor.featureIndex === featureIndex) continue;
+      if (neighbor.featureIndex === featureIndex ||
+          cadLayer(candidate.features?.[neighbor.featureIndex]) !== cadLayer(candidate.features?.[featureIndex])) continue;
       const first = Math.min(featureIndex, neighbor.featureIndex);
       const second = Math.max(featureIndex, neighbor.featureIndex);
       const key = `${first}:${second}`;

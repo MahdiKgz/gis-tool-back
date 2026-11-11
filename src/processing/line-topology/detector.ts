@@ -1,3 +1,4 @@
+import { cadLayer } from "../shared/cad-layer";
 import RBush from "rbush";
 import { getFeatureId } from "../shared/feature-id";
 import {
@@ -34,12 +35,14 @@ interface NormalizedLineTopologyOptions {
 }
 
 interface LinePart extends CoordinateSequence {
+  cadLayer: string | null;
   partIndex: number;
   featureIndex: number;
   featureId: string | number | null;
 }
 
 interface TargetPart {
+  cadLayer: string | null;
   targetPartIndex: number;
   kind: "Line" | "PolygonBoundary";
   linePartIndex: number | null;
@@ -125,6 +128,7 @@ const collectLineParts = (geojson: FeatureCollectionLike): LinePart[] => {
         partIndex: lineParts.length,
         featureIndex,
         featureId: getFeatureId(feature),
+        cadLayer: cadLayer(feature),
       });
     });
   });
@@ -141,6 +145,7 @@ const collectTargetParts = (
     linePartIndex: part.partIndex,
     featureIndex: part.featureIndex,
     featureId: part.featureId,
+    cadLayer: part.cadLayer,
     geometryType: part.geometryType,
     geometryCollectionPath: [...part.geometryCollectionPath],
     coordinateRootPath: [...part.coordinateRootPath],
@@ -157,6 +162,7 @@ const collectTargetParts = (
           linePartIndex: null,
           featureIndex,
           featureId: getFeatureId(feature),
+          cadLayer: cadLayer(feature),
           geometryType: component.geometryType,
           geometryCollectionPath: [...component.geometryCollectionPath],
           coordinateRootPath: [...component.polygonPath, ringIndex],
@@ -263,10 +269,11 @@ const terminalSegments = (
   return terminal;
 };
 
-const isOwnLineTarget = (
+const isExcludedTarget = (
   part: LinePart,
   target: TargetPart,
-): boolean => target.kind === "Line" && target.linePartIndex === part.partIndex;
+): boolean => part.cadLayer !== target.cadLayer ||
+  (target.kind === "Line" && target.linePartIndex === part.partIndex);
 
 const closestOvershoot = (
   part: LinePart,
@@ -292,7 +299,7 @@ const closestOvershoot = (
     const segmentLengthMeters = distanceMetersBetweenPositions(start, end);
     for (const target of spatialIndex.search(segmentBounds(start, end))) {
       const targetPart = targetParts[target.targetPartIndex]!;
-      if (isOwnLineTarget(part, targetPart)) continue;
+      if (isExcludedTarget(part, targetPart)) continue;
       const intersection = segmentIntersection(
         start,
         end,
@@ -388,7 +395,7 @@ const closestToleranceUndershoot = (
     ),
   )) {
     const targetPart = targetParts[target.targetPartIndex]!;
-    if (isOwnLineTarget(part, targetPart)) continue;
+    if (isExcludedTarget(part, targetPart)) continue;
     const proximity = closestPointOnSegment(
       endpoint.endpointPosition,
       target.start,
@@ -460,7 +467,7 @@ const closestDirectionalBoundaryUndershoot = (
     segmentBounds(endpoint.endpointPosition, extended),
   )) {
     const targetPart = targetParts[target.targetPartIndex]!;
-    if (isOwnLineTarget(part, targetPart)) continue;
+    if (isExcludedTarget(part, targetPart)) continue;
     const intersection = segmentIntersection(
       endpoint.endpointPosition,
       extended,

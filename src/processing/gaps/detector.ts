@@ -1,3 +1,4 @@
+import { cadLayer } from "../shared/cad-layer";
 import booleanIntersects from "@turf/boolean-intersects";
 import { polygon } from "@turf/helpers";
 import RBush from "rbush";
@@ -439,6 +440,7 @@ export const detectGaps = (
     return { polygonComponentsScanned: 0, candidatePairsChecked: 0, findings: [] };
   }
 
+  const layers = geojson.features.map(cadLayer);
   const boundaries = collectBoundaries(geojson);
   if (
     normalized.gapToleranceMeters === 0 &&
@@ -472,12 +474,9 @@ export const detectGaps = (
     );
     for (const second of candidates) {
       if (second.componentIndex <= first.componentIndex) continue;
-      if (
-        boundaries[first.componentIndex]!.featureIndex ===
-        boundaries[second.componentIndex]!.featureIndex
-      ) {
-        continue;
-      }
+      const firstIndex = boundaries[first.componentIndex]!.featureIndex;
+      const secondIndex = boundaries[second.componentIndex]!.featureIndex;
+      if (firstIndex === secondIndex || layers[firstIndex] !== layers[secondIndex]) continue;
       const key = pairKey(first.componentIndex, second.componentIndex);
       const proximity = closestPointsBetweenSegments(
         first.start,

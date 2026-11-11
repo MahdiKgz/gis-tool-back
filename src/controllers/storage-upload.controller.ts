@@ -12,7 +12,7 @@ export const createStorageUpload = async (req: Request, res: Response, next: Nex
     if (!objectStorageEnabled()) throw new AppError(503, 'Direct storage upload is not configured', 'STORAGE_UNAVAILABLE');
     const userId = getAuthenticatedUserId(req);
     const { fileName, size } = req.body ?? {};
-    if (typeof fileName !== 'string' || fileName.length > 255 || /[\\/\x00-\x1f\x7f]/.test(fileName) || !/\.(geojson|json|zip|shp|kml|kmz|dwg|dgn)$/i.test(fileName))
+    if (typeof fileName !== 'string' || fileName.length > 255 || /[\\/\x00-\x1f\x7f]/.test(fileName) || !/\.(geojson|json|zip|shp|kml|kmz|dwg|dgn|dxf)$/i.test(fileName))
       throw new AppError(400, 'Provide a supported GIS filename without a path', 'INVALID_FILE_NAME');
     const id = randomUUID();
     const key = `temporary/incoming/${objectKey(userId, id, 'incoming', fileName)}`;

@@ -72,27 +72,14 @@ import {
   isHealingCancellationRequested,
   throwIfHealingCancelled,
 } from "../services/heal-cancellation.service";
-const mapshaper = require("mapshaper");
+import { cadLayer } from "../processing/shared/cad-layer";
+import { subtractSharedPolygonAreas } from "../processing/overlaps/repair";
+
+const sourceParcelIndex = Symbol("sourceParcelIndex");
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const DEFAULT_OVERLAP_THRESHOLD = 0.05;
-
-// Sub-epsilon area guard for @turf/intersect artefacts produced when two
-// polygons share an exact edge (e.g. right after a merge). 1e-8 m² is well
-// below any real cadastral overlap but comfortably above floating-point
-// noise, which typically lands around 1e-10 to 1e-13 m².
-// A previous version of this file used 1e-10 — too tight, it let those
-// noise artefacts through as "tiny real overlaps" and triggered false merges.
-const FLOAT_EDGE_EPSILON = 1e-8;
-
-// Overlap resolution runs in passes because a merge can grow a polygon large
-// enough to newly overlap a THIRD polygon that wasn't near either original
-// piece. Each pass rebuilds the spatial index from scratch so bboxes are
-// always current. Capped to avoid runaway iteration on pathological input.
-const MAX_OVERLAP_PASSES = 6;
-
 // ---------------------------------------------------------------------------
 // [DUPLICATE DETECTION] Constants
 // ---------------------------------------------------------------------------
@@ -103,7 +90,7 @@ const MAX_OVERLAP_PASSES = 6;
 const EXACT_MATCH_EPSILON_DEG = 1e-9;
 
 // Default near-duplicate gates. Both are independent of snap tolerance —
-// same design principle as overlapThresholdRatio: duplicate severity and
+// duplicate severity and
 // topology-healing tolerance measure different things and must not share
 // a single knob.
 const DEFAULT_NEAR_DUPLICATE_MAX_OFFSET_M = 0.01; // 1cm
@@ -266,10 +253,10 @@ const detectDuplicatePolygons = (
     };
   }
 
-  // Single build — this stage never mutates geometry mid-scan, so unlike
-  // the overlap engine there is no staleness risk requiring a rebuild.
+  // Candidate geometry remains fixed throughout duplicate detection.
   const index = buildIndex(features);
   const removed = new Set<number>();
+  const layers = features.map(cadLayer);
 
   const nearOffsetDeg = options.nearDuplicateMaxOffsetMeters / 111320;
   const searchMarginDeg =
@@ -316,7 +303,7 @@ const detectDuplicatePolygons = (
 
     for (const item of candidates) {
       const j = item.idx;
-      if (j <= i || removed.has(j)) continue;
+      if (j <= i || removed.has(j) || layers[i] !== layers[j]) continue;
 
       const featureB = features[j];
       const areaA = getArea(i, featureA);
@@ -460,345 +447,6 @@ const detectDuplicatePolygons = (
 };
 
 // ---------------------------------------------------------------------------
-// Explicit polygon repair followed by Mapshaper topology cleanup
-// ---------------------------------------------------------------------------
-const runMapshaperPipeline = async (
-  geojson: any,
-  toleranceMeters: number,
-): Promise<{
-  result: any;
-  sliversRemovedCount: number;
-  sliversAbsorbedCount: number;
-  sliversDeletedCount: number;
-  sliverRepairValidationReport: any;
-  gapsFound: number;
-  gapsClosed: number;
-  gapValidationReport: any;
-}> =>
-  new Promise((resolve, reject) => {
-    const minAreaM2 = computeSliverAreaThresholdM2(toleranceMeters);
-    const gapToleranceMeters = computeGapToleranceMeters(toleranceMeters);
-
-    const sliverResult = processSlivers(
-      geojson,
-      {
-        sliverAreaThresholdM2: minAreaM2,
-      },
-      true,
-    );
-    const gapResult = processGaps(
-      sliverResult.geojson,
-      { gapToleranceMeters, minimumGapWidthMeters: toleranceMeters },
-      true,
-    );
-
-    if (gapResult.geojson.features.length === 0) {
-      resolve({
-        result: gapResult.geojson,
-        sliversRemovedCount: sliverResult.report.sliversRemoved,
-        sliversAbsorbedCount: sliverResult.report.sliversAbsorbed,
-        sliversDeletedCount: sliverResult.report.sliversDeleted,
-        sliverRepairValidationReport: sliverResult.report,
-        gapsFound: gapResult.report.gapsFound,
-        gapsClosed: gapResult.report.gapsRepaired,
-        gapValidationReport: gapResult.report,
-      });
-      return;
-    }
-
-    const commands = [
-      `-i input.json`,
-      `-clean`,
-      `-o output.json format=geojson`,
-    ].join(" ");
-
-    mapshaper.applyCommands(
-      commands,
-      { "input.json": JSON.stringify(gapResult.geojson) },
-      (err: any, output: any) => {
-        if (err) return reject(err);
-        if (!output?.["output.json"])
-          return reject(new Error("Mapshaper output missing"));
-
-        const result = JSON.parse(output["output.json"].toString("utf-8"));
-        const sliversRemovedCount = sliverResult.report.sliversRemoved;
-        const sliversAbsorbedCount = sliverResult.report.sliversAbsorbed;
-        const sliversDeletedCount = sliverResult.report.sliversDeleted;
-        const gapsFound = gapResult.report.gapsFound;
-        const gapsClosed = gapResult.report.gapsRepaired;
-
-        resolve({
-          result,
-          sliversRemovedCount,
-          sliversAbsorbedCount,
-          sliversDeletedCount,
-          sliverRepairValidationReport: sliverResult.report,
-          gapsFound,
-          gapsClosed,
-          gapValidationReport: gapResult.report,
-        });
-      },
-    );
-  });
-
-// ---------------------------------------------------------------------------
-// Polygon overlap detection & conditional healing — MULTI-PASS
-//
-// WHY MULTI-PASS IS NECESSARY (the bug being fixed here):
-//
-//   A single-pass approach builds one RBush index from the ORIGINAL bboxes
-//   and never rebuilds it. Consider three polygons A, B, C where:
-//     - A and B overlap slightly (should merge)
-//     - C sits right where merged(A+B) would land, but is NOT near
-//       original A or original B individually
-//
-//   Single pass:
-//     i=A → finds B via index → merges → resultMap[A] = grown(A+B)
-//     i=C → searches index for candidates near C
-//         → index still has ORIGINAL small bboxes for A and B
-//         → grown(A+B)'s larger bbox is NOT reflected in the index
-//         → C never finds the merged polygon as a candidate
-//         → a REAL overlap between C and merged(A+B) is silently missed
-//
-//   Fix: after each pass, if any merge happened, rebuild the index from the
-//   CURRENT feature set and run another pass. This guarantees every bbox
-//   the index holds is accurate for candidate search. Passes stop as soon
-//   as a pass produces zero merges (fixed point reached), which is usually
-//   1–2 passes for realistic cadastral clusters. MAX_OVERLAP_PASSES caps
-//   the loop so pathological input can't hang the worker.
-//
-// CRITICAL PAIR DEDUPLICATION ACROSS PASSES:
-//   Untouched polygons keep the same object identity across passes (they're
-//   never replaced), so a critical pair that doesn't merge would otherwise
-//   be re-detected and re-logged every single pass. A WeakMap assigns each
-//   feature object a stable numeric uid on first sight; pairs are deduped
-//   by uid so each distinct critical relationship is logged exactly once.
-//   A newly merged polygon is a NEW object with a NEW uid, so if it goes on
-//   to have a critical relationship with something else, that gets logged
-//   too — correctly, since the merged polygon's area/shape has changed and
-//   is new information, not a repeat.
-//
-// FLOAT_EDGE_EPSILON GUARD (separate earlier bug, still enforced here):
-//   After a merge, the grown polygon shares an exact edge with whatever it
-//   didn't merge with. @turf/intersect on two polygons sharing an exact
-//   edge can return a near-zero-area artefact instead of null. Without a
-//   large enough epsilon guard that artefact's tiny positive area produces
-//   a tiny ratio, which falls below the merge threshold and triggers a
-//   FALSE merge of an untouched, correctly-adjacent polygon.
-// ---------------------------------------------------------------------------
-interface OverlapEntry {
-  type: "healed" | "critical";
-  featureIndexA: number;
-  featureIndexB: number;
-  featureIdA: string | null;
-  featureIdB: string | null;
-  overlapAreaM2: number;
-  overlapRatio: number;
-  overlapBbox: [number, number, number, number];
-  status: "Merged" | "CriticalError";
-}
-
-const healPolygonOverlaps = (
-  features: any[],
-  overlapThresholdRatio: number,
-): {
-  features: any[];
-  overlapsHealed: number;
-  overlapsCritical: number;
-  overlapErrorLog: OverlapEntry[];
-} => {
-  const overlapErrorLog: OverlapEntry[] = [];
-
-  if (features.length < 2) {
-    return {
-      features,
-      overlapsHealed: 0,
-      overlapsCritical: 0,
-      overlapErrorLog,
-    };
-  }
-
-  let uidCounter = 0;
-  const uidMap = new WeakMap<object, number>();
-  const getUid = (f: object): number => {
-    if (!uidMap.has(f)) uidMap.set(f, uidCounter++);
-    return uidMap.get(f)!;
-  };
-  const pairKey = (a: number, b: number) => (a < b ? `${a}:${b}` : `${b}:${a}`);
-
-  const seenCriticalPairs = new Set<string>();
-  let current = features;
-  let totalHealed = 0;
-  let totalCritical = 0;
-
-  for (let pass = 0; pass < MAX_OVERLAP_PASSES; pass++) {
-    // Fresh index every pass — this is the core fix. bboxes always current.
-    const index = buildIndex(current);
-    const mergedAway = new Set<number>();
-    const resultMap = new Map<number, any>();
-    current.forEach((f, i) => resultMap.set(i, f));
-
-    let mergedThisPass = 0;
-
-    for (let i = 0; i < current.length; i++) {
-      if (mergedAway.has(i)) continue;
-
-      const featureA = resultMap.get(i)!;
-      let areaA: number;
-      try {
-        areaA = area(featureA);
-      } catch {
-        continue;
-      }
-      if (areaA <= 0) continue;
-
-      const [minX, minY, maxX, maxY] = bbox(featureA);
-      const candidates = index.search({ minX, minY, maxX, maxY });
-
-      for (const item of candidates) {
-        const j = item.idx;
-        if (j <= i || mergedAway.has(j)) continue;
-
-        const featureB = resultMap.get(j);
-        if (!featureB) continue;
-
-        let areaB: number;
-        try {
-          areaB = area(featureB);
-        } catch {
-          continue;
-        }
-        if (areaB <= 0) continue;
-
-        let overlapGeom: any;
-        try {
-          overlapGeom = intersect(featureCollection([featureA, featureB]));
-        } catch {
-          continue;
-        }
-        if (!overlapGeom) continue;
-
-        let overlapAreaM2: number;
-        try {
-          overlapAreaM2 = area(overlapGeom);
-        } catch {
-          continue;
-        }
-
-        // Guard against shared-edge floating-point artefacts
-        if (overlapAreaM2 <= FLOAT_EDGE_EPSILON) continue;
-
-        const smallerArea = Math.min(areaA, areaB);
-        const overlapRatio = overlapAreaM2 / smallerArea;
-        const overlapBbox = bbox(overlapGeom) as [
-          number,
-          number,
-          number,
-          number,
-        ];
-        const featureIdA = featureA.id ?? featureA.properties?.id ?? null;
-        const featureIdB = featureB.id ?? featureB.properties?.id ?? null;
-
-        if (overlapRatio < overlapThresholdRatio) {
-          // Small overlap → merge. Larger polygon's properties win.
-          let merged: any;
-          try {
-            merged = union(featureCollection([featureA, featureB]));
-          } catch {
-            const key = pairKey(getUid(featureA), getUid(featureB));
-            if (!seenCriticalPairs.has(key)) {
-              seenCriticalPairs.add(key);
-              totalCritical++;
-              overlapErrorLog.push({
-                type: "critical",
-                featureIndexA: i,
-                featureIndexB: j,
-                featureIdA,
-                featureIdB,
-                overlapAreaM2,
-                overlapRatio,
-                overlapBbox,
-                status: "CriticalError",
-              });
-            }
-            continue;
-          }
-
-          const winnerProps =
-            areaA >= areaB
-              ? { ...featureA.properties, __mergedFrom: featureIdB ?? j }
-              : { ...featureB.properties, __mergedFrom: featureIdA ?? i };
-
-          merged.properties = winnerProps;
-          merged.id = areaA >= areaB ? (featureA.id ?? i) : (featureB.id ?? j);
-
-          resultMap.set(i, merged);
-          mergedAway.add(j);
-          resultMap.delete(j);
-
-          areaA = area(merged);
-          mergedThisPass++;
-          totalHealed++;
-
-          overlapErrorLog.push({
-            type: "healed",
-            featureIndexA: i,
-            featureIndexB: j,
-            featureIdA,
-            featureIdB,
-            overlapAreaM2,
-            overlapRatio,
-            overlapBbox,
-            status: "Merged",
-          });
-        } else {
-          // Large overlap → critical error, deduped across passes by uid pair
-          const key = pairKey(getUid(featureA), getUid(featureB));
-          if (!seenCriticalPairs.has(key)) {
-            seenCriticalPairs.add(key);
-            totalCritical++;
-            overlapErrorLog.push({
-              type: "critical",
-              featureIndexA: i,
-              featureIndexB: j,
-              featureIdA,
-              featureIdB,
-              overlapAreaM2,
-              overlapRatio,
-              overlapBbox,
-              status: "CriticalError",
-            });
-            console.error(
-              `🔴 [SnapGIS] CRITICAL OVERLAP — ` +
-                `${featureIdA ?? i} ↔ ${featureIdB ?? j} | ` +
-                `${(overlapRatio * 100).toFixed(1)}% of smaller polygon ` +
-                `(${overlapAreaM2.toFixed(4)} m²) | pass ${pass + 1}`,
-            );
-          }
-        }
-      }
-    }
-
-    current = Array.from(resultMap.values());
-
-    if (mergedThisPass === 0) break; // fixed point — no more merges possible
-    if (pass === MAX_OVERLAP_PASSES - 1) {
-      console.warn(
-        `⚠️ [SnapGIS] Overlap healing hit MAX_OVERLAP_PASSES (${MAX_OVERLAP_PASSES}) ` +
-          `without converging — some cascading overlaps may remain unresolved.`,
-      );
-    }
-  }
-
-  return {
-    features: current,
-    overlapsHealed: totalHealed,
-    overlapsCritical: totalCritical,
-    overlapErrorLog,
-  };
-};
-
-// ---------------------------------------------------------------------------
 // Worker
 // ---------------------------------------------------------------------------
 export const gisWorker = new Worker(
@@ -812,7 +460,6 @@ export const gisWorker = new Worker(
       filePath,
       size,
       tolerance,
-      overlapThresholdRatio,
       nearDuplicateMaxOffsetMeters,
       nearDuplicateMinIoU,
     } = job.data;
@@ -820,8 +467,6 @@ export const gisWorker = new Worker(
     const usertolerance = tolerance || 25;
     const polyToleranceMeters = usertolerance / 1000;
     const minSliverAreaM2 = computeSliverAreaThresholdM2(polyToleranceMeters);
-    const effectiveOverlapRatio =
-      overlapThresholdRatio ?? DEFAULT_OVERLAP_THRESHOLD;
     const effectiveNearDuplicateMaxOffsetMeters =
       nearDuplicateMaxOffsetMeters ?? DEFAULT_NEAR_DUPLICATE_MAX_OFFSET_M;
     const effectiveNearDuplicateMinIoU =
@@ -829,7 +474,7 @@ export const gisWorker = new Worker(
 
     console.log(
       `🤖 [SnapGIS Worker] Job ${job.id} | ${originalName} ` +
-        `| tolerance: ${usertolerance}mm | overlapRatio: ${effectiveOverlapRatio}`,
+        `| tolerance: ${usertolerance}mm`,
     );
 
     await cancellationCheckpoint();
@@ -839,6 +484,13 @@ export const gisWorker = new Worker(
     const ext = path.extname(originalName).toLowerCase();
     await job.updateProgress(createHealingProgress(10, "parsing"));
     let geojson: any = await readGisFile(filePath, originalName);
+    const analysis = await getAnalysis(jobId);
+    for (const group of analysis?.report.issueGroups ?? []) {
+      if (group.code !== "POLYGON_OVERLAP") continue;
+      for (const index of group.affectedFeatureIndexes) {
+        if (geojson.features?.[index]) geojson.features[index][sourceParcelIndex] = index;
+      }
+    }
     await cancellationCheckpoint();
 
     // GEO-010 is the first semantic gate. Invalid feature geometries are
@@ -1134,7 +786,8 @@ export const gisWorker = new Worker(
     }
 
     // Keep review targets out of stages that can merge or remove their output slot.
-    const analysis = await getAnalysis(jobId);
+    const unsafePolygons = new Set(quarantinedFeatureIndexes);
+    const confirmedParcels = new Set(Object.keys(analysis?.parcelEdits ?? {}).map(Number));
     const manualParcelIndexes = new Set<number>();
     const reviewGroups = analysis ? manualReviewGroupIds(analysis) : new Set<string>();
     for (const group of analysis?.report.issueGroups ?? []) {
@@ -1146,12 +799,21 @@ export const gisWorker = new Worker(
         }
       }
     }
+    for (const index of confirmedParcels) {
+      manualParcelIndexes.add(index);
+      quarantinedFeatureIndexes.add(index);
+    }
     const quarantinedFeatures: any[] = [];
+    const reviewOverlapOffsets: number[] = [];
     const manualParcelOffsets: Array<[number, number]> = [];
     geojson.features.forEach((feature: any, index: number) => {
       if (!quarantinedFeatureIndexes.has(index)) return;
       if (manualParcelIndexes.has(index)) {
         manualParcelOffsets.push([index, quarantinedFeatures.length]);
+      }
+      if (!unsafePolygons.has(index) && !confirmedParcels.has(index) &&
+          isParcelType(feature.geometry?.type)) {
+        reviewOverlapOffsets.push(quarantinedFeatures.length);
       }
       quarantinedFeatures.push(feature);
     });
@@ -1234,27 +896,6 @@ export const gisWorker = new Worker(
     );
     await cancellationCheckpoint();
 
-    // Resolve polygon overlaps before gap/sliver work so downstream
-    // adjacency decisions use the geometry that will actually be emitted.
-    let overlapsHealed = 0;
-    let overlapsCritical = 0;
-    let overlapErrorLog: OverlapEntry[] = [];
-    let polyFeaturesAfterOverlap = polyFeaturesAfterDuplicates;
-
-    if (polyFeaturesAfterDuplicates.length > 1) {
-      const result = healPolygonOverlaps(
-        polyFeaturesAfterDuplicates,
-        effectiveOverlapRatio,
-      );
-      polyFeaturesAfterOverlap = result.features;
-      overlapsHealed = result.overlapsHealed;
-      overlapsCritical = result.overlapsCritical;
-      overlapErrorLog = result.overlapErrorLog;
-      console.log(
-        `🔷 [SnapGIS] Overlaps — merged: ${overlapsHealed} | critical: ${overlapsCritical}`,
-      );
-    }
-
     await job.updateProgress(
       createHealingProgress(50, "healing", {
         sliver: inputSliverCount,
@@ -1265,7 +906,7 @@ export const gisWorker = new Worker(
 
     const kinkCount =
       selfIntersectionValidationReport.selfIntersectionsFound;
-    let healedPolysList: any[] = polyFeaturesAfterOverlap;
+    const healedPolysList: any[] = polyFeaturesAfterDuplicates;
 
     await job.updateProgress(
       createHealingProgress(60, "healing", {
@@ -1276,8 +917,6 @@ export const gisWorker = new Worker(
     );
     await cancellationCheckpoint();
 
-    // rewind MUST run before the featureCollection snapshot — otherwise
-    // Mapshaper receives un-rewound polygons and silently drops holes.
     let processedPolys = featureCollection([] as any[]);
     let sliversRemovedCount = 0;
     let sliversAbsorbedCount = 0;
@@ -1290,38 +929,40 @@ export const gisWorker = new Worker(
     let postProcessingRingOrientationIssuesUnresolved = 0;
 
     if (healedPolysList.length > 0) {
-      const finalOrientationResult = processRingOrientation(
-        featureCollection(healedPolysList),
-      );
-      healedPolysList = finalOrientationResult.geojson.features;
-      postProcessingRingsOrientationNormalized =
-        finalOrientationResult.report.ringsNormalized;
-      postProcessingRingOrientationIssuesUnresolved =
-        finalOrientationResult.report.unresolvedIssues;
-      processedPolys = featureCollection(healedPolysList);
-
-      const mapshaperOutput = await runMapshaperPipeline(
-        processedPolys,
-        polyToleranceMeters,
-      );
-      await cancellationCheckpoint();
-      const outputOrientationResult = processRingOrientation(
-        mapshaperOutput.result,
-      );
-      processedPolys = outputOrientationResult.geojson;
-      postProcessingRingsOrientationNormalized +=
-        outputOrientationResult.report.ringsNormalized;
-      postProcessingRingOrientationIssuesUnresolved +=
-        outputOrientationResult.report.unresolvedIssues;
-      sliversRemovedCount = mapshaperOutput.sliversRemovedCount;
-      sliversAbsorbedCount = mapshaperOutput.sliversAbsorbedCount;
-      sliversDeletedCount = mapshaperOutput.sliversDeletedCount;
-      sliverRepairValidationReport =
-        mapshaperOutput.sliverRepairValidationReport;
-      gapsFound = mapshaperOutput.gapsFound;
-      gapsClosed = mapshaperOutput.gapsClosed;
-      gapValidationReport = mapshaperOutput.gapValidationReport;
+      const oriented = processRingOrientation(featureCollection(healedPolysList)).geojson;
+      const slivers = processSlivers(oriented, { sliverAreaThresholdM2: minSliverAreaM2 }, true);
+      const gaps = processGaps(slivers.geojson, {
+        gapToleranceMeters: computeGapToleranceMeters(polyToleranceMeters),
+        minimumGapWidthMeters: polyToleranceMeters,
+      }, true);
+      processedPolys = gaps.geojson;
+      sliversRemovedCount = slivers.report.sliversRemoved;
+      sliversAbsorbedCount = slivers.report.sliversAbsorbed;
+      sliversDeletedCount = slivers.report.sliversDeleted;
+      sliverRepairValidationReport = slivers.report;
+      gapsFound = gaps.report.gapsFound;
+      gapsClosed = gaps.report.gapsRepaired;
+      gapValidationReport = gaps.report;
     }
+
+    // Subtract after gap repair so the intentionally cleared overlap is not filled again.
+    const regularCount = processedPolys.features.length;
+    const { features: clippedPolygons, removedFeatureIndexes, overlapsHealed, overlapsCritical, overlapErrorLog } =
+      subtractSharedPolygonAreas([
+        ...processedPolys.features,
+        ...reviewOverlapOffsets.map((offset) => quarantinedFeatures[offset]),
+      ]);
+    const outputOrientation = processRingOrientation(featureCollection(clippedPolygons));
+    const removedQuarantineOffsets = new Set<number>();
+    for (const [index, offset] of reviewOverlapOffsets.entries()) {
+      const clippedIndex = regularCount + index;
+      if (removedFeatureIndexes.has(clippedIndex)) removedQuarantineOffsets.add(offset);
+      else quarantinedFeatures[offset] = outputOrientation.geojson.features[clippedIndex];
+    }
+    processedPolys = featureCollection(outputOrientation.geojson.features.slice(0, regularCount)
+      .filter((_, index) => !removedFeatureIndexes.has(index)));
+    postProcessingRingsOrientationNormalized = outputOrientation.report.ringsNormalized;
+    postProcessingRingOrientationIssuesUnresolved = outputOrientation.report.unresolvedIssues;
 
     // Endpoint topology must see polygon boundaries. The former worker path
     // passed only line features even though dry-run used the complete dataset,
@@ -1361,11 +1002,20 @@ export const gisWorker = new Worker(
       ...otherFeatures,
     ];
 
-    const optimizedGeojson = prepareOutputCoordinates(geojson, 9);
     const manualParcelOutputIndexes = Object.fromEntries(
-      manualParcelOffsets.map(([index, offset]) => [index, optimizedGeojson.features.length + offset]),
+      geojson.features.flatMap((feature, index) =>
+        feature[sourceParcelIndex] === undefined ? [] : [[feature[sourceParcelIndex], index]]),
     );
-    optimizedGeojson.features = optimizedGeojson.features.concat(quarantinedFeatures);
+    const manualIndexesByOffset = new Map(manualParcelOffsets.map(([index, offset]) => [offset, index]));
+    const keptQuarantine: any[] = [];
+    quarantinedFeatures.forEach((feature, offset) => {
+      if (removedQuarantineOffsets.has(offset)) return;
+      const index = manualIndexesByOffset.get(offset);
+      if (index !== undefined) manualParcelOutputIndexes[index] = geojson.features.length + keptQuarantine.length;
+      keptQuarantine.push(feature);
+    });
+    const optimizedGeojson = prepareOutputCoordinates(geojson, 9);
+    optimizedGeojson.features = optimizedGeojson.features.concat(keptQuarantine);
 
     const remote = isObjectReference(filePath);
     const outputDir = remote ? fs.mkdtempSync(path.join(os.tmpdir(), "snapgis-healing-")) : path.join(__dirname, "../../uploads/cleaned_files");
@@ -1517,7 +1167,6 @@ export const gisWorker = new Worker(
       coordinatePrecisionValidationReport,
       appliedCoordinatePrecision: 9,
       appliedTolerance: usertolerance,
-      appliedOverlapThresholdRatio: effectiveOverlapRatio,
       appliedNearDuplicateMaxOffsetMeters:
         effectiveNearDuplicateMaxOffsetMeters,
       appliedNearDuplicateMinIoU: effectiveNearDuplicateMinIoU,

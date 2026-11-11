@@ -21,7 +21,7 @@ export const openApiDocument = {
     title: "SnapGIS API",
     version: "1.0.0",
     description:
-      "Authentication and topology analysis/healing API. In S3 mode, original/healed preview and download endpoints return a 302 signed GET URL valid for 15 minutes; clients must follow redirects. Access tokens are short-lived Bearer JWTs. The refresh token is rotated in an HttpOnly cookie and is never exposed to JavaScript.",
+      "Authentication and topology analysis/healing API. In S3 mode, unmodified original and healed previews can return a 302 signed GET URL valid for 15 minutes; clients must follow redirects. Access tokens are short-lived Bearer JWTs. The refresh token is rotated in an HttpOnly cookie and is never exposed to JavaScript.",
   },
   servers: [{ url: "/api", description: "Current server" }],
   tags: [
@@ -362,7 +362,7 @@ export const openApiDocument = {
         summary: "Upload and dry-run analyze a GIS file",
         parameters: [compactReportParameter],
         description:
-          "Accepts GeoJSON, JSON, KML, KMZ, SHP, ZIP shapefile bundles, DWG and DGN up to 5 MB. CAD requires sourceCrs (EPSG code). Conversion is server-side; DGN v8 requires an ODA-enabled runtime. No repair is performed by this request.",
+          "Accepts GeoJSON, JSON, KML, KMZ, SHP, ZIP shapefile bundles, DWG, DGN and DXF. CAD requires sourceCrs (EPSG code). Conversion is server-side; DGN v8 requires an ODA-enabled runtime. No repair is performed by this request.",
         security: [{ bearerAuth: [] }],
         requestBody: {
           required: true,
@@ -384,7 +384,7 @@ export const openApiDocument = {
                     pattern: "^EPSG:[1-9][0-9]{3,5}$",
                     example: "EPSG:32639",
                     description:
-                      "Required for DWG/DGN. The actual source CRS; no CRS is guessed. Coordinates are transformed to EPSG:4326.",
+                      "Required for DWG, DGN and DXF. The actual source CRS; no CRS is guessed. Coordinates are transformed to EPSG:4326.",
                   },
                   tolerance: {
                     type: "number",
@@ -747,7 +747,7 @@ export const openApiDocument = {
         summary:
           "Export owned healed output in a selected format and target CRS",
         description:
-          "Uses the healed or manually reviewed GeoJSON with confirmed parcel geometry. Source CRS is fixed to EPSG:4326. Up to 5 MiB converts synchronously; larger inputs use the existing conversion queue.",
+          "Exports linework from healed or manually reviewed geometry. DXF polylines retain their CAD layer assignments. Source CRS is fixed to EPSG:4326. Up to 5 MiB converts synchronously; larger inputs use the existing conversion queue.",
         requestBody: {
           required: true,
           content: {
@@ -813,7 +813,7 @@ export const openApiDocument = {
         parameters: [{ $ref: "#/components/parameters/JobId" }],
         responses: {
           "200": {
-            description: "GeoJSON attachment",
+            description: "GeoJSON linework attachment with polygon rings and lines as MultiLineString",
             content: {
               "application/geo+json": {
                 schema: { type: "string", format: "binary" },

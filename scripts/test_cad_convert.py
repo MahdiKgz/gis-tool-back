@@ -10,6 +10,8 @@ from unittest.mock import patch
 import warnings
 
 import cad_convert
+import format_convert
+from dxf_layers import text_dxf_layers
 from cad_warnings import CadWarnings
 
 
@@ -77,6 +79,23 @@ class ConverterTests(unittest.TestCase):
             self.assertAlmostEqual(data["features"][0]["geometry"]["coordinates"][0], 51, places=5)
             self.assertTrue(data["snapgisCadImport"]["partial"])
             self.assertEqual(data["snapgisCadImport"]["warnings"][0]["code"], "CAD_MISSING_BLOCK")
+
+    def test_dxf_round_trip_keeps_unicode_layers_and_empty_layer_records(self):
+        import json
+        from shapely.geometry import MultiLineString
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "drawing.dxf"
+            target = Path(directory) / "output.geojson"
+            layers = ["زمین", "ساختمان", "خالی"]
+            parcel = MultiLineString([[(51, 35), (51.01, 35), (51.01, 35.01), (51, 35)]])
+            format_convert.write_dxf(source, [(parcel, {"Layer": layer}) for layer in layers[:2]], [], layers)
+            self.assertEqual(text_dxf_layers(source), ["0", *layers])
+            with contextlib.redirect_stdout(io.StringIO()):
+                cad_convert.convert(source, target, "EPSG:4326", "dwgread", CadWarnings())
+            result = json.loads(target.read_text())
+            self.assertEqual(result["snapgisCadLayers"], ["0", *layers])
+            self.assertEqual([f["snapgisCadLayer"] for f in result["features"]], layers[:2])
 
     def test_unknown_gdal_warning_prevents_output_publication(self):
         with tempfile.TemporaryDirectory() as directory:

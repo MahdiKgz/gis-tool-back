@@ -177,27 +177,28 @@ test("serves completed status, preview GeoJSON, and attachment download", async 
   await previewOriginalInput(request, originalResponse, next);
   assert.deepEqual(originalBody, output);
 
-  let downloadedPath = "";
+  let downloadedBody: unknown;
   let downloadedName = "";
   const downloadResponse = {
     setHeader(name: string, value: string) {
       assert.equal(name, "Cache-Control");
       assert.equal(value, "no-store");
     },
-    headersSent: false,
-    download(
-      filePath: string,
-      fileName: string,
-      callback: (error?: Error) => void,
-    ) {
-      downloadedPath = filePath;
+    attachment(fileName: string) {
       downloadedName = fileName;
-      callback();
+      return this;
+    },
+    type(value: string) {
+      assert.equal(value, "application/geo+json");
+      return this;
+    },
+    json(body: unknown) {
+      downloadedBody = body;
       return this;
     },
   } as unknown as Response;
   await downloadHealedOutput(request, downloadResponse, next);
-  assert.equal(downloadedPath, outputFilePath);
+  assert.deepEqual(downloadedBody, output);
   assert.equal(downloadedName, outputFileName);
 });
 

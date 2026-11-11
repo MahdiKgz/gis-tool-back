@@ -15,7 +15,7 @@ export interface PolygonOverlapFinding {
   overlapAreaM2: number;
   overlapRatio: number;
   overlapBbox: [number, number, number, number];
-  repairable: false;
+  repairable: boolean;
 }
 
 export interface PolygonOverlapDetectionResult {
@@ -34,7 +34,7 @@ export interface PolygonOverlapValidationReport {
   issues: Array<
     PolygonOverlapFinding & {
       status: "Unresolved";
-      recommendedAction: "ManualReview";
+      recommendedAction: "AutoRepair" | "ManualReview";
     }
   >;
 }

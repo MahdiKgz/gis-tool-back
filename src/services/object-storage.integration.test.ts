@@ -93,10 +93,9 @@ integration('MinIO: private bounded direct upload, owned analysis/healing, downl
       assert.equal((await getAnalysis(id))!.reviewDecisions?.['0']?.action, 'approved');
       assert.deepEqual((await getAnalysis(id))!.report, analysis.report);
       const download = await fetch(`${base}/api/heal/${id}/download`, { headers, redirect: 'manual' });
-      assert.equal(download.status, 302);
-      const output = await fetch(download.headers.get('location')!);
-      assert.ok(output.headers.get('content-disposition')?.includes('attachment'));
-      assert.equal((await output.json() as any).type, 'FeatureCollection');
+      assert.equal(download.status, 200);
+      assert.ok(download.headers.get('content-disposition')?.includes('attachment'));
+      assert.equal((await download.json() as any).type, 'FeatureCollection');
       for (const targetFormat of ['geojson', 'shapefile', 'dxf']) {
         const exported = await fetch(`${base}/api/heal/${id}/export`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ targetFormat, targetCRS: 'EPSG:32639' }) });
         assert.equal(exported.status, 200, await (exported.ok ? Promise.resolve('') : exported.text()));
