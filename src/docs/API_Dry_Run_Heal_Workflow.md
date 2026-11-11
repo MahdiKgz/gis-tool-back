@@ -235,14 +235,28 @@ GET /heal/:jobId/download
 
 `output` serves the healed GeoJSON inline for map rendering. `download`
 serves the same bytes with an attachment disposition and the cleaned file
-name. Both endpoints require a completed manifest, validate that the stored
-file is inside `uploads/cleaned_files`, and return `410 OUTPUT_FILE_EXPIRED`
-after cleanup removes it.
+name. These endpoints use the completed output or, when there are confirmed
+parcel edits and automatic healing has not completed, the original normalized
+input with those edits. The selected CRS and format export endpoint uses the
+same geometry. Expired storage returns `410 OUTPUT_FILE_EXPIRED`.
 
 `original` converts the retained source upload to GeoJSON without changing it,
-allowing the map to overlay the pre-healing geometry. Manual-review decisions
-are persisted with `PATCH /heal/:jobId/reviews/:issueIndex` and one of the
-`approved`, `rejected`, or `manual-edit` actions.
+allowing the map to overlay the pre-healing geometry.
+
+`GET /heal/:jobId/reviews/:issueIndex` returns the current Polygon or
+MultiPolygon for an owned manual-review issue and its revision. Confirm a
+geometry edit with `PATCH /heal/:jobId/reviews/:issueIndex` and
+`{ "action": "manual-edit", "revision": "...", "geometry": { ... } }`.
+The server rejects invalid polygon rings, stale revisions and changes during
+queued or active healing. The `approved` and `rejected` actions record review
+decisions. They leave the output geometry as it was.
+
+Confirmed geometry is stored per source parcel. During automatic healing,
+polygons marked for manual review retain their own output slot and are
+excluded from later polygon merge, deletion and snapping stages. The
+confirmed geometry replaces that parcel in preview, download and export.
+For legacy completed jobs, editing is available when the original parcel
+can be matched unambiguously to a parcel in the healed output.
 
 Queued and active jobs can be cancelled with `POST /heal/:jobId/cancel`.
 Waiting jobs are removed from BullMQ and active workers check the cancellation

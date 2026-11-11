@@ -142,6 +142,10 @@ test("serves completed status, preview GeoJSON, and attachment download", async 
   let previewType = "";
   let previewPath = "";
   const previewResponse = {
+    setHeader(name: string, value: string) {
+      assert.equal(name, "Cache-Control");
+      assert.equal(value, "no-store");
+    },
     type(value: string) {
       previewType = value;
       return this;
@@ -176,6 +180,10 @@ test("serves completed status, preview GeoJSON, and attachment download", async 
   let downloadedPath = "";
   let downloadedName = "";
   const downloadResponse = {
+    setHeader(name: string, value: string) {
+      assert.equal(name, "Cache-Control");
+      assert.equal(value, "no-store");
+    },
     headersSent: false,
     download(
       filePath: string,

@@ -684,6 +684,21 @@ export const openApiDocument = {
       },
     },
     "/heal/{jobId}/reviews/{issueIndex}": {
+      get: {
+        tags: ["Topology"],
+        summary: "Get the parcel geometry and revision for a manual review",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { $ref: "#/components/parameters/JobId" },
+          { name: "issueIndex", in: "path", required: true, schema: { type: "integer", minimum: 0 } },
+        ],
+        responses: {
+          "200": { description: "data contains geometry, revision and confirmed" },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "409": { description: "Parcel review is unavailable" },
+          ...errorResponses,
+        },
+      },
       patch: {
         tags: ["Topology"],
         summary: "Record a manual-review decision",
@@ -708,6 +723,8 @@ export const openApiDocument = {
                     type: "string",
                     enum: ["approved", "rejected", "manual-edit"],
                   },
+                  revision: { type: "string", description: "Required for manual-edit. Use the revision returned by GET." },
+                  geometry: { type: "object", description: "Required for manual-edit. A valid Polygon or MultiPolygon." },
                 },
                 required: ["action"],
               },
@@ -717,7 +734,7 @@ export const openApiDocument = {
         responses: {
           "200": { description: "Review decision saved" },
           "404": { $ref: "#/components/responses/NotFound" },
-          "409": { description: "Issue does not require manual review" },
+          "409": { description: "Review is unavailable or the parcel revision has changed" },
           ...errorResponses,
         },
       },
@@ -730,7 +747,7 @@ export const openApiDocument = {
         summary:
           "Export owned healed output in a selected format and target CRS",
         description:
-          "Uses the stored healed GeoJSON directly; no browser re-upload. Source CRS is fixed to EPSG:4326. Up to 5 MiB converts synchronously; larger inputs use the existing conversion queue. Full analytical geometry remains unchanged.",
+          "Uses the healed or manually reviewed GeoJSON with confirmed parcel geometry. Source CRS is fixed to EPSG:4326. Up to 5 MiB converts synchronously; larger inputs use the existing conversion queue.",
         requestBody: {
           required: true,
           content: {

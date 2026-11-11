@@ -163,6 +163,7 @@ const buildFileDetail = (
           : null,
     },
     reviewDecisions: analysis?.reviewDecisions ?? {},
+    manualParcelIndexes: Object.keys(analysis?.parcelEdits ?? {}).map(Number),
   };
 };
 

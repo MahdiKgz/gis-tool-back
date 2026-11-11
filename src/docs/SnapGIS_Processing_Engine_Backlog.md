@@ -45,6 +45,8 @@
 
 ### Infrastructure
 
+-   [x] User-requested on-map parcel editing for manual-review issues, revision-checked confirmation, and reviewed preview, download and format export. See [Dry-run and heal API workflow](API_Dry_Run_Heal_Workflow.md).
+
 -   [x] User-requested account email verification and password recovery. See [Email verification and password recovery](Account_Recovery.md).
 
 -   [x] CAD warning policy: accept known GDAL polygon fallbacks and explicitly partial missing-block imports; preserve diagnostics in normalized data and stored/compact reports; show warnings during analysis and saved-file review; reject unknown/native decoding errors; synthetic native, unit and real-project upload checks.

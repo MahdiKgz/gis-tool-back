@@ -61,6 +61,7 @@ import {
   markAnalysisProgress,
 } from "../services/analysis-store.service";
 import { GisJobData } from "../types/gis-job";
+import { isParcelType } from "../services/manual-parcel.service";
 import { countAppliedRepairs } from "../services/heal-result.service";
 import {
   createHealingProgress,
@@ -1132,10 +1133,26 @@ export const gisWorker = new Worker(
       );
     }
 
-    const quarantinedFeatures = geojson.features.filter(
-      (_: any, featureIndex: number) =>
-        quarantinedFeatureIndexes.has(featureIndex),
-    );
+    // Keep review targets out of stages that can merge or remove their output slot.
+    const analysis = await getAnalysis(jobId);
+    const manualParcelIndexes = new Set<number>();
+    for (const issue of analysis?.report.issues ?? []) {
+      if (issue.disposition !== "ManualReview") continue;
+      const index = issue.featureIndex;
+      if (isParcelType(geojson.features[index]?.geometry?.type)) {
+        manualParcelIndexes.add(index);
+        quarantinedFeatureIndexes.add(index);
+      }
+    }
+    const quarantinedFeatures: any[] = [];
+    const manualParcelOffsets: Array<[number, number]> = [];
+    geojson.features.forEach((feature: any, index: number) => {
+      if (!quarantinedFeatureIndexes.has(index)) return;
+      if (manualParcelIndexes.has(index)) {
+        manualParcelOffsets.push([index, quarantinedFeatures.length]);
+      }
+      quarantinedFeatures.push(feature);
+    });
 
     await job.updateProgress(
       createHealingProgress(20, "error-detection", {
@@ -1343,7 +1360,10 @@ export const gisWorker = new Worker(
     ];
 
     const optimizedGeojson = prepareOutputCoordinates(geojson, 9);
-    optimizedGeojson.features.push(...quarantinedFeatures);
+    const manualParcelOutputIndexes = Object.fromEntries(
+      manualParcelOffsets.map(([index, offset]) => [index, optimizedGeojson.features.length + offset]),
+    );
+    optimizedGeojson.features = optimizedGeojson.features.concat(quarantinedFeatures);
 
     const remote = isObjectReference(filePath);
     const outputDir = remote ? fs.mkdtempSync(path.join(os.tmpdir(), "snapgis-healing-")) : path.join(__dirname, "../../uploads/cleaned_files");
@@ -1504,6 +1524,7 @@ export const gisWorker = new Worker(
       downloadPath: `/api/heal/${jobId}/download`,
       outputFileName,
       outputFilePath,
+      manualParcelOutputIndexes,
     };
   },
   { connection: redisConnection as any, concurrency: 2 },

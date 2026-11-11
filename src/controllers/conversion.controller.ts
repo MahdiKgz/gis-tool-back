@@ -1,6 +1,7 @@
 import { objectStorageEnabled, isObjectReference, storedStat, copyStoredFile, materializeStoredFile, putStoredFile } from "../services/object-storage.service";
 import { conversionObjectKey, conversionStoredOutput } from "../services/conversion.service";
 import { getStoredAnalysis } from "./heal-status.controller";
+import { buildReviewedOutput, hasManualParcelEdits } from "../services/manual-parcel.service";
 import { resolveHealedOutput } from "../services/heal-result.service";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -135,14 +136,15 @@ export const createConversionHandlers = (deps: Dependencies = dependencies) => {
         req.params.jobId,
         userId,
       );
-      if (analysis.healStatus !== "completed")
+      const hasReviewedOutput = hasManualParcelEdits(analysis);
+      if (analysis.healStatus !== "completed" && !hasReviewedOutput)
         throw new AppError(
           409,
           "The healed output is not ready.",
           "CONVERSION_NOT_READY",
         );
       const output = resolveHealedOutput(analysis);
-      if (!output)
+      if (!output && !hasReviewedOutput)
         throw new AppError(
           410,
           "The healed output is unavailable.",
@@ -162,26 +164,28 @@ export const createConversionHandlers = (deps: Dependencies = dependencies) => {
         ...req.body,
         sourceCRS: "EPSG:4326",
       });
-      const info = await storedStat(output.filePath).catch((error) => {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        throw new AppError(
-          410,
-          "The healed output has expired.",
-          "CONVERSION_EXPIRED",
-        );
-      });
-      if (!info.isFile() || info.size > MAX_CONVERSION_MB * 1024 * 1024)
-        throw new AppError(
-          413,
-          "The output exceeds conversion capacity.",
-          "CONVERSION_LIMIT_EXCEEDED",
-        );
+      const maxBytes = MAX_CONVERSION_MB * 1024 * 1024;
       const created = await createConversionDirectory();
       directory = created.directory;
       const source = path.join(directory, "input.geojson");
-      await copyStoredFile(output.filePath, source, MAX_CONVERSION_MB * 1024 * 1024);
+      let size: number;
+      if (hasReviewedOutput) {
+        const geojson = JSON.stringify(await buildReviewedOutput(analysis));
+        size = Buffer.byteLength(geojson);
+        if (size <= maxBytes) await fs.writeFile(source, geojson);
+      } else {
+        const filePath = output!.filePath;
+        const info = await storedStat(filePath).catch((error) => {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          throw new AppError(410, "The healed output has expired.", "CONVERSION_EXPIRED");
+        });
+        size = info.isFile() ? info.size : Infinity;
+        if (size <= maxBytes) await copyStoredFile(filePath, source, maxBytes);
+      }
+      if (size > maxBytes)
+        throw new AppError(413, "The output exceeds conversion capacity.", "CONVERSION_LIMIT_EXCEEDED");
       const task: ConversionTask = { ...options, ...created, source, userId };
-      await execute(task, info.size, res, abort.signal, () => {
+      await execute(task, size, res, abort.signal, () => {
         queued = true;
       });
     } catch (error) {

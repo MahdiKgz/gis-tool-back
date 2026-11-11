@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { DryRunReport } from "./dry-run.service";
+import type { ConfirmedParcelEdit } from "./manual-parcel.service";
 import { GisJobData } from "../types/gis-job";
 
 export type HealStatus =
@@ -24,6 +25,7 @@ export interface StoredManualReviewDecision {
 export interface StoredHealResult extends Record<string, unknown> {
   outputFileName?: string;
   outputFilePath?: string;
+  manualParcelOutputIndexes?: Record<number, number>;
 }
 
 export interface StoredAnalysis {
@@ -39,6 +41,7 @@ export interface StoredAnalysis {
   healFailedAt: string | null;
   healResult: StoredHealResult | null;
   healError: string | null;
+  parcelEdits?: Record<number, ConfirmedParcelEdit>;
   reviewDecisions?: Record<string, StoredManualReviewDecision>;
   jobData: GisJobData;
   report: DryRunReport;
@@ -373,5 +376,29 @@ export const saveManualReviewDecision = async (
         [String(issueIndex)]: { action, updatedAt: new Date().toISOString() },
       },
     }),
+    storeDirectory,
+  );
+
+export const saveConfirmedParcelEdit = (
+  id: string,
+  issueIndex: number,
+  featureIndex: number,
+  edit: ConfirmedParcelEdit,
+  assertCurrent: (analysis: StoredAnalysis) => void,
+  storeDirectory = DEFAULT_STORE_DIRECTORY,
+) =>
+  updateAnalysis(
+    id,
+    (current) => {
+      assertCurrent(current);
+      return {
+        ...current,
+        parcelEdits: { ...current.parcelEdits, [featureIndex]: edit },
+        reviewDecisions: {
+          ...current.reviewDecisions,
+          [issueIndex]: { action: "manual-edit", updatedAt: new Date().toISOString() },
+        },
+      };
+    },
     storeDirectory,
   );

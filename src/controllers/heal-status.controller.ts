@@ -1,5 +1,6 @@
 import { storedStat, isObjectReference, signedDownload } from "../services/object-storage.service";
 import { issuePage } from "../services/public-report.service";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import { NextFunction, Request, Response } from "express";
 import { AppError } from "../middlewares/errorHandler";
@@ -26,9 +27,21 @@ import {
 } from "../services/heal-progress.service";
 import { readGisFile } from "../services/gis-file.service";
 import {
+  saveConfirmedParcelEdit,
   saveManualReviewDecision,
   type ManualReviewAction,
 } from "../services/analysis-store.service";
+
+import {
+  assertParcelReviewAvailable,
+  buildReviewedOutput,
+  getParcelForReview,
+  hasManualParcelEdits,
+  isParcelType,
+  manualParcelFileName,
+  parcelRevision,
+  validateParcelGeometry,
+} from "../services/manual-parcel.service";
 
 export const getStoredAnalysis = async (
   jobId: unknown,
@@ -404,54 +417,67 @@ const REVIEW_ACTIONS = new Set<ManualReviewAction>([
   "manual-edit",
 ]);
 
+const getReviewIssue = async (req: Request) => {
+  const analysis = await getStoredAnalysis(req.params.jobId, getAuthenticatedUserId(req));
+  const rawIndex = req.params.issueIndex;
+  const issueIndex = Number(rawIndex);
+  if (typeof rawIndex !== "string" || !/^\d+$/.test(rawIndex) || !Number.isSafeInteger(issueIndex)) {
+    throw new AppError(400, "A valid issue index is required", "INVALID_ISSUE_INDEX");
+  }
+  const issue = analysis.report.issues[issueIndex];
+  if (!issue) throw new AppError(404, "Review issue not found", "REVIEW_ISSUE_NOT_FOUND");
+  if (issue.disposition !== "ManualReview") {
+    throw new AppError(409, "This issue does not require manual review", "ISSUE_NOT_MANUAL_REVIEW");
+  }
+  return { analysis, issueIndex, issue };
+};
+
+export const getManualReviewParcel = async (req: Request, res: Response) => {
+  const { analysis, issue } = await getReviewIssue(req);
+  const { geometry, revision, confirmed } = await getParcelForReview(analysis, issue.featureIndex);
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ success: true, data: { geometry, revision, confirmed } });
+};
+
 export const updateManualReview = async (
   req: Request,
   res: Response,
   next: NextFunction,
 ): Promise<void> => {
   try {
-    const analysis = await getStoredAnalysis(
-      req.params.jobId,
-      getAuthenticatedUserId(req),
-    );
-    const issueIndex = Number(req.params.issueIndex);
+    const { analysis, issueIndex, issue } = await getReviewIssue(req);
     const action = req.body?.action as ManualReviewAction;
-    if (!Number.isSafeInteger(issueIndex) || issueIndex < 0) {
-      throw new AppError(
-        400,
-        "A valid issue index is required",
-        "INVALID_ISSUE_INDEX",
-      );
-    }
-    const issue = analysis.report.issues[issueIndex];
-    if (!issue) {
-      throw new AppError(
-        404,
-        "Review issue not found",
-        "REVIEW_ISSUE_NOT_FOUND",
-      );
-    }
-    if (issue.disposition !== "ManualReview") {
-      throw new AppError(
-        409,
-        "This issue does not require manual review",
-        "ISSUE_NOT_MANUAL_REVIEW",
-      );
-    }
     if (!REVIEW_ACTIONS.has(action)) {
-      throw new AppError(
-        400,
-        "A valid review action is required",
-        "INVALID_REVIEW_ACTION",
-      );
+      throw new AppError(400, "A valid review action is required", "INVALID_REVIEW_ACTION");
     }
-    const updated = await saveManualReviewDecision(
-      analysis.id,
-      issueIndex,
-      action,
-    );
-    if (!updated)
-      throw new AppError(404, "Dry-run job not found", "JOB_NOT_FOUND");
+
+    let updated: StoredAnalysis | null;
+    if (action === "manual-edit") {
+      const assertCurrent = (current: StoredAnalysis) => {
+        assertParcelReviewAvailable(current);
+        if (req.body?.revision !== parcelRevision(current, issue.featureIndex)) {
+          throw new AppError(409, "Reload the parcel before confirming your changes", "STALE_PARCEL_EDIT");
+        }
+      };
+      assertCurrent(analysis);
+      const currentParcel = await getParcelForReview(analysis, issue.featureIndex);
+      const type = currentParcel.geometry?.type;
+      if (!isParcelType(type)) {
+        throw new AppError(409, "The review issue does not identify a polygon parcel", "ISSUE_NOT_PARCEL");
+      }
+      const geometry = validateParcelGeometry(req.body?.geometry, type);
+      updated = await saveConfirmedParcelEdit(analysis.id, issueIndex, issue.featureIndex, {
+        geometry,
+        revision: randomUUID(),
+        ...(currentParcel.legacyOutputIndex !== undefined
+          ? { legacyOutputIndex: currentParcel.legacyOutputIndex }
+          : {}),
+      }, assertCurrent);
+    } else {
+      updated = await saveManualReviewDecision(analysis.id, issueIndex, action);
+    }
+    if (!updated) throw new AppError(404, "Dry-run job not found", "JOB_NOT_FOUND");
+
     res.status(200).json({
       success: true,
       data: {
@@ -465,10 +491,8 @@ export const updateManualReview = async (
 };
 
 const getCompletedOutput = async (
-  jobId: unknown,
-  ownerId: string,
+  analysis: StoredAnalysis,
 ): Promise<{ filePath: string; fileName: string }> => {
-  const analysis = await getStoredAnalysis(jobId, ownerId);
   if (analysis.healStatus !== "completed") {
     throw new AppError(
       409,
@@ -503,11 +527,18 @@ export const previewHealedOutput = async (
   next: NextFunction,
 ): Promise<void> => {
   try {
-    const output = await getCompletedOutput(
-      req.params.jobId,
-      getAuthenticatedUserId(req),
-    );
-    if (isObjectReference(output.filePath)) { res.setHeader("Cache-Control", "no-store"); res.redirect(302, await signedDownload(output.filePath)); return; }
+    const analysis = await getStoredAnalysis(req.params.jobId, getAuthenticatedUserId(req));
+    res.setHeader("Cache-Control", "no-store");
+    if (hasManualParcelEdits(analysis)) {
+      const data = await buildReviewedOutput(analysis);
+      res.type("application/geo+json").json(data);
+      return;
+    }
+    const output = await getCompletedOutput(analysis);
+    if (isObjectReference(output.filePath)) {
+      res.redirect(302, await signedDownload(output.filePath));
+      return;
+    }
     res.type("application/geo+json");
     res.sendFile(output.filePath);
   } catch (error) {
@@ -521,11 +552,18 @@ export const downloadHealedOutput = async (
   next: NextFunction,
 ): Promise<void> => {
   try {
-    const output = await getCompletedOutput(
-      req.params.jobId,
-      getAuthenticatedUserId(req),
-    );
-    if (isObjectReference(output.filePath)) { res.setHeader("Cache-Control", "no-store"); res.redirect(302, await signedDownload(output.filePath, output.fileName)); return; }
+    const analysis = await getStoredAnalysis(req.params.jobId, getAuthenticatedUserId(req));
+    res.setHeader("Cache-Control", "no-store");
+    if (hasManualParcelEdits(analysis)) {
+      const data = await buildReviewedOutput(analysis);
+      res.attachment(manualParcelFileName(analysis)).type("application/geo+json").json(data);
+      return;
+    }
+    const output = await getCompletedOutput(analysis);
+    if (isObjectReference(output.filePath)) {
+      res.redirect(302, await signedDownload(output.filePath, output.fileName));
+      return;
+    }
     res.download(output.filePath, output.fileName, (error) => {
       if (error && !res.headersSent) next(error);
     });
