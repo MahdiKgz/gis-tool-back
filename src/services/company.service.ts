@@ -61,7 +61,7 @@ export const requireAdmin = async (tx: Client, actorId: string) => {
 const lockUser = async (tx: Client, id: string) => {
   await tx.$queryRaw`SELECT id FROM users WHERE id = ${id}::uuid FOR UPDATE`;
 };
-const lockCompany = async (tx: Client, id: string) => {
+export const lockCompany = async (tx: Client, id: string) => {
   await tx.$queryRaw`SELECT id FROM companies WHERE id = ${id}::uuid FOR UPDATE`;
 };
 const ownedCompany = async (tx: Client, ownerId: string, active = true) => {

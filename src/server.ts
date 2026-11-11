@@ -1,4 +1,4 @@
-import { assertStorageConfiguration } from "./services/object-storage.service";
+import { assertStorageConfiguration, objectStorageEnabled } from "./services/object-storage.service";
 import "dotenv/config";
 import app from "./app";
 import { initCleanupCron } from "./services/cleanup.service";
@@ -7,6 +7,7 @@ import { database, initializeDatabase } from "./services/database.service";
 import { getAccessTokenSecret } from "./config/auth.config";
 import { gisQueue, redisConnection } from "./services/queue.service";
 import { closeHealingEventSource } from "./services/heal-event.service";
+import { startSpatialImageWorker } from "./services/spatial-image-queue.service";
 
 import {
   conversionQueue,
@@ -23,6 +24,7 @@ const bootstrap = async () => {
   const { gisWorker } = await import("./workers/gis.worker");
 
   const conversionWorker = startConversionWorker();
+  const spatialImageWorker = objectStorageEnabled() ? startSpatialImageWorker() : undefined;
 
   const server = app.listen(PORT, () => {
     console.log(`🚀 Server is running on http://localhost:${PORT}`);
@@ -33,7 +35,7 @@ const bootstrap = async () => {
   const shutdown = async (signal: string) => {
     console.log(`${signal} received; shutting down gracefully`);
     server.close(async () => {
-      await Promise.allSettled([gisWorker.close(), conversionWorker.close()]);
+      await Promise.allSettled([gisWorker.close(), conversionWorker.close(), spatialImageWorker?.close()]);
       await Promise.allSettled([
         conversionQueue.close(),
         gisQueue.close(),

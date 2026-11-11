@@ -18,6 +18,8 @@ export const initCleanupCron = (): void => {
     if (objectStorageEnabled()) {
       void database.storageUpload.deleteMany({ where: { expiresAt: { lt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) } } })
         .catch(error => console.error("Expired upload ticket cleanup failed:", error));
+      void database.spatialImage.deleteMany({ where: { status: "uploading", expiresAt: { lte: new Date() } } })
+        .catch(error => console.error("Expired spatial image reservations cleanup failed:", error));
     }
     void cleanExpiredConversions().catch((error) => console.error("Conversion cleanup failed:", error));
     console.log("🧹 [Cron] Starting daily storage cleanup...");

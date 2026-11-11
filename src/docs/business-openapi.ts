@@ -39,6 +39,38 @@ export const businessPaths = {
       "Own personal/effective plan, company role and active incoming invitations",
     ),
   },
+  "/business/company/spatial-images": {
+    get: operation("List the active company's shared spatial images and quota"),
+  },
+  "/business/company/spatial-images/presign": {
+    post: {
+      ...operation("Reserve a company image slot and sign a size-bound MinIO POST"),
+      requestBody: body({
+        fileName: { type: "string", maxLength: 255, example: "orthophoto.tiff" },
+        size: { type: "integer", format: "int64", minimum: 1, maximum: 5368709120 },
+      }, ["fileName", "size"]),
+      responses: { ...responses, "201": { description: "Reservation ID, URL, signed form fields and expiry" } },
+    },
+  },
+  "/business/company/spatial-images/{imageId}/complete": {
+    post: {
+      ...operation("Confirm the direct upload and schedule map tile preparation"),
+      parameters: [id("imageId")],
+      responses: { ...responses, "202": { description: "Image status" } },
+    },
+  },
+  "/business/company/spatial-images/{imageId}/preview": {
+    get: {
+      ...operation("Sign a short-lived Range-readable PMTiles URL for a ready image"),
+      parameters: [id("imageId")],
+    },
+  },
+  "/business/company/spatial-images/{imageId}": {
+    delete: {
+      ...operation("Delete a spatial image as its uploader or the company owner"),
+      parameters: [id("imageId")],
+    },
+  },
   "/business/admin/users": {
     get: {
       ...operation(

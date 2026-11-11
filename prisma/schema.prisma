@@ -28,6 +28,7 @@ model User {
   ownedCompany       Company?            @relation("CompanyOwner")
   companyMembership  CompanyMember?
   companyInvitations CompanyInvitation[]
+  spatialImages      SpatialImage[]
   uploadActivity     UploadActivity[]
   planAssignments    PlanAssignment[]    @relation("PlanTarget")
   assignedPlans      PlanAssignment[]    @relation("PlanActor")
@@ -131,8 +132,36 @@ model Company {
   members     CompanyMember[]
   invitations CompanyInvitation[]
   activity    UploadActivity[]
+  spatialImages SpatialImage[]
 
   @@map("companies")
+}
+
+enum SpatialImageStatus {
+  uploading
+  processing
+  ready
+  failed
+  deleting
+}
+
+model SpatialImage {
+  id          String             @id @default(uuid()) @db.Uuid
+  companyId   String             @map("company_id") @db.Uuid
+  uploaderId  String             @map("uploader_id") @db.Uuid
+  name        String             @db.VarChar(255)
+  size        BigInt
+  status      SpatialImageStatus @default(uploading)
+  uploadETag  String?            @map("upload_etag")
+  errorCode   String?            @map("error_code")
+  expiresAt   DateTime           @map("expires_at") @db.Timestamptz(6)
+  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  company     Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  uploader    User               @relation(fields: [uploaderId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, createdAt])
+  @@index([status, expiresAt])
+  @@map("spatial_images")
 }
 
 model CompanyMember {

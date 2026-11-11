@@ -11,6 +11,7 @@ import { authRateLimit } from "../middlewares/auth-rate-limit.middleware";
 import { PLANS } from "../services/business-plan.service";
 import * as company from "../services/company.service";
 import { getAdminReports } from "../services/admin-reports.service";
+import * as imagery from "../services/spatial-image.service";
 
 const router = express.Router();
 const handle =
@@ -82,6 +83,32 @@ router.patch(
 router.get(
   "/company",
   handle((req) => company.getCompanyDashboard(getAuthenticatedUserId(req))),
+);
+router.get(
+  "/company/spatial-images",
+  handle((req) => imagery.listSpatialImages(getAuthenticatedUserId(req))),
+);
+router.post(
+  "/company/spatial-images/presign",
+  handle((req) => imagery.reserveSpatialImage(getAuthenticatedUserId(req), req.body), 201),
+);
+router.post(
+  "/company/spatial-images/:imageId/complete",
+  handle((req) => imagery.completeSpatialImage(
+    getAuthenticatedUserId(req), company.parseBusinessId(req.params.imageId),
+  ), 202),
+);
+router.get(
+  "/company/spatial-images/:imageId/preview",
+  handle((req) => imagery.spatialImagePreview(
+    getAuthenticatedUserId(req), company.parseBusinessId(req.params.imageId),
+  )),
+);
+router.delete(
+  "/company/spatial-images/:imageId",
+  handle((req) => imagery.deleteSpatialImage(
+    getAuthenticatedUserId(req), company.parseBusinessId(req.params.imageId),
+  )),
 );
 router.patch(
   "/company",

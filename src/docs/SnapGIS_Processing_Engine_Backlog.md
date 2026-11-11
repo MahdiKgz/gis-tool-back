@@ -18,6 +18,8 @@
 
 ## Completed
 
+-   [x] Company spatial imagery with direct MinIO upload and tiled map previews
+
 ### Geometry
 
 -   [x] Self Intersection Detection and Dry-Run Reporting

@@ -126,3 +126,37 @@ MinIO, migrated PostgreSQL and the CAD/GDAL runtime. The storage suite creates a
 and keys, exercises actual direct uploads (including oversize rejection), GeoJSON/DWG/DGN dry-run and
 healing, private/owned previews, each export format, a >5 MiB queued export, terminal-state races,
 vertex report preservation and deletion, then cleans only its test data.
+
+## Company spatial images
+
+Each active advanced company shares three image slots across its owner and members.
+Each slot accepts one `.tif` or `.tiff` up to 5 GiB (5,368,709,120 bytes).
+The map preview requires an embedded CRS and affine georeferencing. The uploader
+or company owner can remove an image and free its slot.
+
+The browser POSTs directly to the private MinIO bucket using the fields returned by
+`POST /api/business/company/spatial-images/presign` (file last). The form is bound
+to the exact file size and expires after four hours. The uploader then calls
+`POST /api/business/company/spatial-images/{id}/complete`. A worker snapshots the
+staged upload by ETag into the durable prefix and builds a Web Mercator PMTiles
+raster archive. The original is kept at full resolution. Preview generation caps
+the longest raster edge at 16,384 pixels. Ready images receive a 15-minute signed
+GET from `GET /api/business/company/spatial-images/{id}/preview`. MapLibre uses
+HTTP byte ranges to read the archive and refreshes the signature as needed.
+
+Run `pnpm db:deploy` before starting the updated server. Install GDAL 3.2+ with
+GTiff, MBTiles and PNG support, and the
+[go-pmtiles CLI](https://docs.protomaps.com/pmtiles/create). The executable paths
+and temporary directory can be configured in `.env.example`. Budget scratch
+space for one full-size TIFF, one MBTiles database and one PMTiles archive per
+worker instance. Reapply the MinIO initialization policy on existing installs
+so failed multipart archive uploads can be aborted. The browser must be able
+to send POST and ranged GET requests to the public MinIO origin. The storage
+proxy must preserve `Range`, `Content-Range` and the signed request host.
+
+Set `SPATIAL_IMAGE_INTEGRATION=1` and use the same PostgreSQL, Redis, MinIO and
+GDAL configuration to run the integration test after `pnpm test:compile`:
+
+```sh
+node --env-file=.env --test dist-test/services/spatial-image.integration.test.js
+```

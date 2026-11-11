@@ -1,4 +1,5 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand, DeleteObjectCommand, CopyObjectCommand } from "@aws-sdk/client-s3";
+import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import { createReadStream, createWriteStream } from "node:fs";
@@ -70,13 +71,36 @@ export const putStoredFile = async (key: string, file: string, contentType = 'ap
 };
 export const storedStat = async (reference: string) => {
   if (!isObjectReference(reference)) return fs.stat(reference);
+  return storedObjectStat(reference);
+};
+export const storedObjectStat = async (reference: string) => {
   try {
     const info = await client().send(new HeadObjectCommand(objectLocation(reference)));
-    return { size: info.ContentLength ?? 0, isFile: () => true };
+    return { size: info.ContentLength ?? 0, etag: info.ETag, isFile: () => true };
   } catch (error) {
     if (objectMissing(error)) throw Object.assign(new Error('Stored file not found'), { code: 'ENOENT' });
     throw error;
   }
+};
+export const snapshotStoredObject = async (source: string, destination: string, etag: string) => {
+  const { Bucket, Key } = objectLocation(source);
+  const copySource = [Bucket, ...Key.split('/')].map(encodeURIComponent).join('/');
+  await client().send(new CopyObjectCommand({
+    ...objectLocation(destination), CopySource: copySource, CopySourceIfMatch: etag,
+    MetadataDirective: "REPLACE", ContentType: "image/tiff",
+  }));
+};
+export const putStoredArchive = async (reference: string, file: string) => {
+  const body = createReadStream(file);
+  try {
+    await new Upload({
+      client: client(), queueSize: 2, partSize: 16 * 1024 * 1024,
+      params: {
+        ...objectLocation(reference), Body: body, ContentLength: (await fs.stat(file)).size,
+        ContentType: "application/octet-stream", CacheControl: "private, max-age=300",
+      },
+    }).done();
+  } finally { body.destroy(); }
 };
 export const removeStoredFile = async (reference: string) => {
   if (!isObjectReference(reference)) { await fs.rm(reference, { force: true }); return; }
@@ -111,10 +135,12 @@ export const signedDownload = async (reference: string, name?: string) => getSig
 export const signedUpload = async (key: string, size: number) => {
   if (!Number.isSafeInteger(size) || size <= 0 || size > 250 * 1024 * 1024)
     throw new AppError(413, 'Upload must be between 1 byte and 250 MiB', 'FILE_TOO_LARGE');
-  return createPresignedPost(client(true), { Bucket: storageConfig().bucket, Key: key, Expires: 900,
-    Conditions: [['content-length-range', size, size]], Fields: { 'Content-Type': 'application/octet-stream' },
-  });
+  return signedExactUpload(key, size, 900, 'application/octet-stream');
 };
+export const signedExactUpload = async (key: string, size: number, expiresIn: number, contentType: string) =>
+  createPresignedPost(client(true), { Bucket: storageConfig().bucket, Key: key, Expires: expiresIn,
+    Conditions: [['content-length-range', size, size]], Fields: { 'Content-Type': contentType },
+  });
 export const assertStorageConfiguration = () => {
   if (process.env.NODE_ENV === 'production' && !objectStorageEnabled()) throw new Error('Production requires STORAGE_DRIVER=s3');
   if (process.env.STORAGE_DRIVER && !['s3', 'local'].includes(process.env.STORAGE_DRIVER)) throw new Error('Invalid STORAGE_DRIVER');
