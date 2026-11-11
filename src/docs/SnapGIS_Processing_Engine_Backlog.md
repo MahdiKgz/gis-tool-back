@@ -45,6 +45,8 @@
 
 ### Infrastructure
 
+-   [x] User-requested account email verification and password recovery. See [Email verification and password recovery](Account_Recovery.md).
+
 -   [x] CAD warning policy: accept known GDAL polygon fallbacks and explicitly partial missing-block imports; preserve diagnostics in normalized data and stored/compact reports; show warnings during analysis and saved-file review; reject unknown/native decoding errors; synthetic native, unit and real-project upload checks.
 
 -   [x] User-requested MinIO object storage: private owner/job original, normalized and healed objects; transactional PostgreSQL analysis/report metadata; object-backed queued conversion; owner-scoped 15-minute GET/POST signatures with exact-size upload policy; local Compose scoped credentials, lifecycle/TLS/backup guide, SHA-256 verified legacy migration, regression and real MinIO/CAD/export tests. See Object_Storage.md.

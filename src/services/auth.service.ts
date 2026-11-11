@@ -36,6 +36,13 @@ const normalizeDigits = (value: string) =>
 export const normalizePhone = (phone: string): string =>
   normalizeDigits(phone).replace(/[\s()-]/g, "");
 
+export const validateNewPassword = (value: unknown): string => {
+  if (typeof value !== "string" || value.length < 8 || Buffer.byteLength(value, "utf8") > 128) {
+    throw new AppError(400, "Password must contain at least 8 characters and at most 128 bytes", "INVALID_PASSWORD");
+  }
+  return value;
+};
+
 export const validateRegistrationInput = (body: unknown) => {
   if (!body || typeof body !== "object") {
     throw new AppError(400, "A JSON request body is required", "INVALID_REQUEST_BODY");
@@ -43,18 +50,13 @@ export const validateRegistrationInput = (body: unknown) => {
   const input = body as Record<string, unknown>;
   const name = typeof input.name === "string" ? input.name.trim() : "";
   const phone = typeof input.phone === "string" ? normalizePhone(input.phone) : "";
-  const password = typeof input.password === "string" ? input.password : "";
-
   if (name.length < 2 || name.length > 100) {
     throw new AppError(400, "Name must contain between 2 and 100 characters", "INVALID_NAME");
   }
   if (!/^09\d{9}$/.test(phone)) {
     throw new AppError(400, "Phone must be a valid 11-digit Iranian mobile number", "INVALID_PHONE");
   }
-  if (password.length < 8 || Buffer.byteLength(password, "utf8") > 128) {
-    throw new AppError(400, "Password must contain between 8 and 128 bytes", "INVALID_PASSWORD");
-  }
-  return { name, phone, password };
+  return { name, phone, password: validateNewPassword(input.password) };
 };
 
 export const validateLoginInput = (body: unknown) => {
@@ -81,7 +83,7 @@ export const toPublicUser = (user: UserRecord): PublicUser => ({
 
 const issueCredentials = async (user: UserRecord): Promise<AuthResult> => ({
   accessToken: createAccessToken({ id: user.id, roles: user.roles }),
-  refreshToken: await createRefreshSession(user.id),
+  refreshToken: await createRefreshSession(user.id, user.sessionVersion),
   user: toPublicUser(user),
 });
 
@@ -125,7 +127,7 @@ export const refreshAccountSession = async (refreshToken: string): Promise<AuthR
     throw new AppError(401, "Refresh session is invalid or expired", "INVALID_REFRESH_SESSION");
   }
   const user = await findUserById(session.userId);
-  if (!user) {
+  if (!user || user.sessionVersion !== session.version) {
     throw new AppError(401, "Refresh session is invalid or expired", "INVALID_REFRESH_SESSION");
   }
   return issueCredentials(user);

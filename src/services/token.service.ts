@@ -12,6 +12,7 @@ export interface AccessTokenPrincipal {
 interface RefreshSession {
   userId: string;
   createdAt: string;
+  version: number;
 }
 
 const refreshKey = (token: string) =>
@@ -55,9 +56,9 @@ export const verifyAccessToken = (token: string): AccessTokenPrincipal => {
   }
 };
 
-export const createRefreshSession = async (userId: string): Promise<string> => {
+export const createRefreshSession = async (userId: string, version: number): Promise<string> => {
   const token = randomBytes(48).toString("base64url");
-  const session: RefreshSession = { userId, createdAt: new Date().toISOString() };
+  const session: RefreshSession = { userId, createdAt: new Date().toISOString(), version };
   await authRedis.set(
     refreshKey(token),
     JSON.stringify(session),
@@ -73,8 +74,9 @@ export const consumeRefreshSession = async (
   const serialized = (await authRedis.call("GETDEL", refreshKey(token))) as string | null;
   if (!serialized) return null;
   try {
-    const session = JSON.parse(serialized) as RefreshSession;
-    return typeof session.userId === "string" ? session : null;
+    const session = JSON.parse(serialized) as Partial<RefreshSession>;
+    if (typeof session.userId !== "string" || typeof session.createdAt !== "string") return null;
+    return { userId: session.userId, createdAt: session.createdAt, version: session.version ?? 0 };
   } catch {
     return null;
   }

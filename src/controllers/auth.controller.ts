@@ -8,6 +8,15 @@ import {
   refreshAccountSession,
   registerAccount,
 } from "../services/auth.service";
+import { getAccountMailer } from "../services/account-email.service";
+import {
+  confirmAccountEmail,
+  getAccountEmail,
+  normalizeAccountEmail,
+  requestEmailVerification,
+  requestPasswordReset,
+  resetAccountPassword,
+} from "../services/account-recovery.service";
 import { revokeRefreshSession } from "../services/token.service";
 
 const cookieOptions = () => ({
@@ -80,4 +89,39 @@ export const me = async (req: Request, res: Response, next: NextFunction) => {
   } catch (error) {
     next(error);
   }
+};
+
+export const accountEmail = async (req: Request, res: Response) => {
+  const data = await getAccountEmail(getAuthenticatedUserId(req));
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ success: true, data });
+};
+
+export const sendEmailVerification = async (req: Request, res: Response) => {
+  const data = await requestEmailVerification(getAuthenticatedUserId(req), req.body);
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ success: true, data });
+};
+
+export const verifyEmail = async (req: Request, res: Response) => {
+  const data = await confirmAccountEmail(getAuthenticatedUserId(req), req.body);
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ success: true, data });
+};
+
+export const forgotPassword = (req: Request, res: Response) => {
+  const email = normalizeAccountEmail(req.body?.email);
+  const sendMail = getAccountMailer();
+  res.setHeader("Cache-Control", "no-store");
+  res.status(202).json({ success: true });
+  void requestPasswordReset(email, sendMail).catch(() => {
+    console.error("Password reset email could not be processed");
+  });
+};
+
+export const resetPassword = async (req: Request, res: Response) => {
+  await resetAccountPassword(req.body);
+  res.clearCookie(authConfig.refreshCookieName, cookieOptions());
+  res.setHeader("Cache-Control", "no-store");
+  return res.status(204).send();
 };
