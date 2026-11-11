@@ -1,4 +1,4 @@
-import { storedStat, isObjectReference, signedDownload } from "../services/object-storage.service";
+import { storedStat, isObjectReference, materializeStoredFile } from "../services/object-storage.service";
 import { issuePage } from "../services/public-report.service";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
@@ -400,10 +400,6 @@ export const previewOriginalInput = async (
         "SOURCE_FILE_EXPIRED",
       );
     }
-    if (isObjectReference(analysis.jobData.filePath)) {
-      res.setHeader("Cache-Control", "no-store");
-      res.redirect(302, await signedDownload(analysis.jobData.filePath)); return;
-    }
     const geoJson = await readGisFile(
       analysis.jobData.filePath,
       analysis.jobData.originalName,
@@ -600,11 +596,20 @@ export const previewHealedOutput = async (
       return;
     }
     const output = await getCompletedOutput(analysis);
+    res.type("application/geo+json");
     if (isObjectReference(output.filePath)) {
-      res.redirect(302, await signedDownload(output.filePath));
+      // Map fetches must stay on the authenticated API origin. Redirecting to
+      // storage makes rendering depend on its public endpoint and CORS policy.
+      const local = await materializeStoredFile(output.filePath, output.fileName);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          res.sendFile(local.filePath, (error) => error ? reject(error) : resolve());
+        });
+      } finally {
+        await local.cleanup();
+      }
       return;
     }
-    res.type("application/geo+json");
     res.sendFile(output.filePath);
   } catch (error) {
     next(error);

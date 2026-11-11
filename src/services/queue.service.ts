@@ -9,7 +9,7 @@ export const redisConnection = new IORedis({
 });
 
 export const gisQueue = new Queue("gis-processing-queue", {
-  // @ts-expect-error type-checking for connection type
+  // @ts-expect-error BullMQ bundles a different ioredis type version.
   connection: redisConnection,
   defaultJobOptions: {
     attempts: 3,

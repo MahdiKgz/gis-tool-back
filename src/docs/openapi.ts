@@ -21,7 +21,7 @@ export const openApiDocument = {
     title: "SnapGIS API",
     version: "1.0.0",
     description:
-      "Authentication and topology analysis/healing API. In S3 mode, unmodified original and healed previews can return a 302 signed GET URL valid for 15 minutes; clients must follow redirects. Access tokens are short-lived Bearer JWTs. The refresh token is rotated in an HttpOnly cookie and is never exposed to JavaScript.",
+      "Authentication and topology analysis/healing API. Original and healed map previews and linework downloads are served by the authenticated API, including in S3 mode. Access tokens are short-lived Bearer JWTs. The refresh token is rotated in an HttpOnly cookie and is never exposed to JavaScript.",
   },
   servers: [{ url: "/api", description: "Current server" }],
   tags: [
