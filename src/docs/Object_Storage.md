@@ -160,3 +160,24 @@ GDAL configuration to run the integration test after `pnpm test:compile`:
 ```sh
 node --env-file=.env --test dist-test/services/spatial-image.integration.test.js
 ```
+
+### Cadastral drawing
+
+The cadastral drawing tab opens a ready company GeoTIFF as the map reference.
+Each company member has a personal saved drawing for each image. The API
+stores longitude and latitude vertices in PostgreSQL and checks the expected
+revision on save. A revision of zero creates the first saved drawing. Shapes
+can be exported as a GeoJSON FeatureCollection. A drawing belongs to its image
+and is removed if the image is deleted. The TIFF and tile objects are shared
+among company members.
+
+While drawing a parcel, F7 proposes the missing corner by extending or trimming
+the first and last edges. Enter confirms the suggested parcel. Escape keeps the
+original draft available for further editing.
+
+Run `pnpm db:deploy` before starting the updated server. Run the cadastral API
+integration test against a test database after `pnpm test:compile`:
+
+```sh
+CADASTRAL_INTEGRATION=1 node --env-file=.env --test dist-test/services/cadastral-drawing.integration.test.js
+```

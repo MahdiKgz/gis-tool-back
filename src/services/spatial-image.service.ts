@@ -22,7 +22,7 @@ export const parseSpatialImageUpload = (body: unknown) => {
   return { fileName, size };
 };
 
-const activeCompany = async (client: Prisma.TransactionClient, userId: string) => {
+export const activeCompany = async (client: Prisma.TransactionClient, userId: string) => {
   const company = await client.company.findFirst({
     where: {
       owner: { planCode: "advanced" },

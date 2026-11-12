@@ -29,6 +29,7 @@ model User {
   companyMembership  CompanyMember?
   companyInvitations CompanyInvitation[]
   spatialImages      SpatialImage[]
+  cadastralDrawings  CadastralDrawing[]
   uploadActivity     UploadActivity[]
   planAssignments    PlanAssignment[]    @relation("PlanTarget")
   assignedPlans      PlanAssignment[]    @relation("PlanActor")
@@ -158,10 +159,24 @@ model SpatialImage {
   createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   company     Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
   uploader    User               @relation(fields: [uploaderId], references: [id], onDelete: Restrict)
+  drawings    CadastralDrawing[]
 
   @@index([companyId, createdAt])
   @@index([status, expiresAt])
   @@map("spatial_images")
+}
+
+model CadastralDrawing {
+  imageId   String       @map("image_id") @db.Uuid
+  userId    String       @map("user_id") @db.Uuid
+  features  Json
+  revision  Int          @default(1)
+  image     SpatialImage @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([imageId, userId])
+  @@index([userId])
+  @@map("cadastral_drawings")
 }
 
 model CompanyMember {

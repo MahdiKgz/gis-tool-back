@@ -12,6 +12,7 @@ import { PLANS } from "../services/business-plan.service";
 import * as company from "../services/company.service";
 import { getAdminReports } from "../services/admin-reports.service";
 import * as imagery from "../services/spatial-image.service";
+import * as drawing from "../services/cadastral-drawing.service";
 
 const router = express.Router();
 const handle =
@@ -87,6 +88,18 @@ router.get(
 router.get(
   "/company/spatial-images",
   handle((req) => imagery.listSpatialImages(getAuthenticatedUserId(req))),
+);
+router.get(
+  "/company/spatial-images/:imageId/drawing",
+  handle((req) => drawing.getCadastralDrawing(
+    getAuthenticatedUserId(req), company.parseBusinessId(req.params.imageId),
+  )),
+);
+router.put(
+  "/company/spatial-images/:imageId/drawing",
+  handle((req) => drawing.saveCadastralDrawing(
+    getAuthenticatedUserId(req), company.parseBusinessId(req.params.imageId), req.body,
+  )),
 );
 router.post(
   "/company/spatial-images/presign",

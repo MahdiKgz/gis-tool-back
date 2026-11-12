@@ -42,6 +42,31 @@ export const businessPaths = {
   "/business/company/spatial-images": {
     get: operation("List the active company's shared spatial images and quota"),
   },
+  "/business/company/spatial-images/{imageId}/drawing": {
+    get: {
+      ...operation("Read your cadastral drawing for a ready company image"),
+      parameters: [id("imageId")],
+    },
+    put: {
+      ...operation("Save your cadastral drawing with its current revision"),
+      parameters: [id("imageId")],
+      requestBody: body({
+        revision: { type: "integer", minimum: 0 },
+        features: {
+          type: "array", maxItems: 500, items: {
+            type: "object", required: ["id", "kind", "vertices"], properties: {
+              id: { type: "string", maxLength: 64 },
+              kind: { type: "string", enum: ["line", "parcel"] },
+              vertices: {
+                type: "array", minItems: 2, maxItems: 1000,
+                items: { type: "array", minItems: 2, maxItems: 2, items: { type: "number" } },
+              },
+            },
+          },
+        },
+      }, ["revision", "features"]),
+    },
+  },
   "/business/company/spatial-images/presign": {
     post: {
       ...operation("Reserve a company image slot and sign a size-bound MinIO POST"),
