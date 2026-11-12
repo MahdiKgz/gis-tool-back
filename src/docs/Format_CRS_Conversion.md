@@ -129,3 +129,15 @@ management detail dialog. It shows the known source CRS and lets users select a
 format and target EPSG; no geometry is downloaded/re-uploaded to request conversion.
 
 In S3 mode, queued conversion sources and outputs live under `temporary/conversions/`; workers hydrate a private temporary workspace. Binary download and result-header contracts are unchanged. See [Object Storage](Object_Storage.md).
+
+### Cadastral drawing exports
+
+The drawing export uses the current map geometry in EPSG:4326, including
+completed features that have not been saved to the server. It offers GeoJSON,
+DXF and Shapefile ZIP, with an optional destination CRS. DXF puts closed
+parcel boundaries in the `Parcels` layer and polylines in the `Lines` layer.
+
+For GeoJSON-to-Shapefile exports, the multipart field `splitShapefile=true`
+allows a mixed drawing to use one Shapefile per geometry family in a single
+ZIP. Each layer includes SHP, SHX, DBF, PRJ and CPG. The metadata lists its
+geometry family and field-name mappings.

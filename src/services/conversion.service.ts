@@ -12,6 +12,7 @@ export interface ConversionOptions {
   targetFormat: ConversionFormat;
   sourceCRS?: string;
   targetCRS?: string;
+  splitShapefile?: true;
 }
 export interface ConversionTask extends ConversionOptions {
   id: string;
@@ -84,6 +85,10 @@ export const parseConversionOptions = (
   }
   const sourceCRS = crsOption(body.sourceCRS, "sourceCRS");
   const targetCRS = crsOption(body.targetCRS, "targetCRS");
+  const splitShapefile = body.splitShapefile;
+  if (splitShapefile !== undefined &&
+      (splitShapefile !== "true" || inputFormat !== "geojson" || targetFormat !== "shapefile"))
+    throw new AppError(400, "Layer splitting requires GeoJSON input and Shapefile output.", "UNSUPPORTED_CONVERSION_FORMAT");
   if (inputFormat === "dxf" && !sourceCRS)
     throw new AppError(
       400,
@@ -95,6 +100,7 @@ export const parseConversionOptions = (
     targetFormat,
     ...(sourceCRS ? { sourceCRS } : {}),
     ...(targetCRS ? { targetCRS } : {}),
+    ...(splitShapefile ? { splitShapefile: true as const } : {}),
   };
 };
 

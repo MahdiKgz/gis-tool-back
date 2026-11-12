@@ -146,6 +146,11 @@ export const openApiDocument = {
                   },
                   sourceCRS: { type: "string", example: "EPSG:32639" },
                   targetCRS: { type: "string", example: "EPSG:4326" },
+                  splitShapefile: {
+                    type: "string",
+                    enum: ["true"],
+                    description: "For GeoJSON to Shapefile, place each geometry family in its own layer inside the ZIP.",
+                  },
                 },
               },
             },

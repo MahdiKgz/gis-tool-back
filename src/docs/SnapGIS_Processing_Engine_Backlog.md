@@ -20,6 +20,7 @@
 
 -   [x] Company spatial imagery with direct MinIO upload and tiled map previews
 -   [x] Image-based cadastral drawing for company accounts
+-   [x] Cadastral drawing exports to DXF and layered Shapefile ZIP
 
 ### Geometry
 

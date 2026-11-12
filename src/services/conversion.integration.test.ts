@@ -275,3 +275,31 @@ integration(
     }
   },
 );
+
+integration("drawing Shapefile export keeps line and parcel layers with their own PRJ", async () => {
+  const data = {
+    ...polygon,
+    features: [...polygon.features, {
+      type: "Feature",
+      properties: { id: "line-one" },
+      geometry: { type: "LineString", coordinates: [[51, 35], [51.01, 35.01]] },
+    }],
+  };
+  const task = await fixture("shapefile", data);
+  try {
+    const result = await runConversion({ ...task, targetCRS: "EPSG:32639", splitShapefile: true });
+    assert.equal(result.features, 2);
+    const zip = new AdmZip(conversionOutput(task));
+    for (const layer of ["lines", "parcels"]) {
+      for (const extension of ["shp", "shx", "dbf", "prj", "cpg"])
+        assert.ok(zip.getEntry(`${layer}.${extension}`));
+    }
+    assert.equal(zip.readFile("lines.shp")?.readInt32LE(32), 3);
+    assert.equal(zip.readFile("parcels.shp")?.readInt32LE(32), 5);
+    const metadata = JSON.parse(zip.readAsText("conversion-metadata.json"));
+    assert.equal(metadata.crs, "EPSG:32639");
+    assert.equal(metadata.layers.lines.fields.id, "id");
+  } finally {
+    await removeConversion(task.directory);
+  }
+});

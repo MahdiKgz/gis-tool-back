@@ -68,6 +68,9 @@ integration(
       const form = new FormData();
       form.set("file", new Blob([contents]), "input.geojson");
       form.set("targetFormat", "shapefile");
+      form.set("sourceCRS", "EPSG:4326");
+      form.set("targetCRS", "EPSG:32639");
+      form.set("splitShapefile", "true");
       return form;
     };
     try {
@@ -107,6 +110,7 @@ integration(
       const id = ((await queued.json()) as any).data.jobId;
       const job = jobs.get(id)!;
       assert.equal(job.data.userId, "conversion-owner");
+      assert.equal(job.data.splitShapefile, true);
       const waiting = await fetch(`${base}/convert/${id}`, {
         headers: { authorization },
       });

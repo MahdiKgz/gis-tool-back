@@ -186,10 +186,7 @@ def write_geojson(output, features, crs, ids, layers):
         handle.write(']}')
 
 
-def write_shape(output, features, crs, scratch, notices):
-    families = {geometry.geom_type.removeprefix("Multi") for geometry, _ in features}
-    if len(families) != 1 or not families.issubset({"Point", "LineString", "Polygon"}):
-        fail("UNSUPPORTED_CONVERSION_GEOMETRY", "Shapefile requires a single geometry family (points, lines, or polygons).")
+def write_shape_layer(shp, family, features, crs, notices):
     keys = list(dict.fromkeys(key for _, props in features for key in props))
     if len(keys) > 255:
         fail("CONVERSION_LIMIT_EXCEEDED", "Shapefile supports at most 255 attributes.")
@@ -216,8 +213,6 @@ def write_shape(output, features, crs, scratch, notices):
     if not names:
         names = ['feature_id']
         field_data = [np.arange(1, len(features) + 1, dtype=np.int64)]
-    shp = scratch / "converted.shp"
-    family = next(iter(families))
     geometry_type = ("Multi" if any(geom.geom_type.startswith("Multi") for geom, _ in features) else "") + family
     if any(geom.has_z for geom, _ in features):
         geometry_type += " Z"
@@ -226,13 +221,35 @@ def write_shape(output, features, crs, scratch, notices):
     if any(a != b for a, b in mapping_names.items()):
         notices.append("SHAPEFILE_FIELD_NAMES_SHORTENED")
     notices.append("SHAPEFILE_DBF_ATTRIBUTE_TYPES")
-    (scratch / "conversion-metadata.json").write_text(json.dumps({"crs": crs.to_string(), "fields": mapping_names}, ensure_ascii=False), encoding="utf-8")
-    if sum(file.stat().st_size for file in scratch.glob('converted.*')) > MAX_OUTPUT:
-        fail('CONVERSION_LIMIT_EXCEEDED', 'The expanded Shapefile output exceeds 500 MiB.')
-    with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
-        for file in sorted(scratch.glob('converted.*')):
+    return mapping_names
+
+
+def write_shape(output, features, crs, scratch, notices, split=False):
+    layer_names = {"Point": "points", "LineString": "lines", "Polygon": "parcels"}
+    groups = {}
+    for geometry, props in features:
+        family = geometry.geom_type.removeprefix("Multi")
+        groups.setdefault(family, []).append((geometry, props))
+    if not groups or not groups.keys() <= layer_names.keys() or (len(groups) > 1 and not split):
+        fail("UNSUPPORTED_CONVERSION_GEOMETRY", "Shapefile requires a single geometry family per layer (points, lines, or polygons).")
+
+    metadata = {"crs": crs.to_string()}
+    files = []
+    for family, group in groups.items():
+        name = layer_names[family] if len(groups) > 1 else "converted"
+        fields = write_shape_layer(scratch / f"{name}.shp", family, group, crs, notices)
+        files.extend(scratch.glob(f"{name}.*"))
+        if len(groups) == 1:
+            metadata["fields"] = fields
+        else:
+            metadata.setdefault("layers", {})[name] = {"geometry": family, "fields": fields}
+
+    if sum(file.stat().st_size for file in files) > MAX_OUTPUT:
+        fail("CONVERSION_LIMIT_EXCEEDED", "The expanded Shapefile output exceeds 500 MiB.")
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for file in sorted(files):
             archive.write(file, file.name)
-        archive.write(scratch / 'conversion-metadata.json', 'conversion-metadata.json')
+        archive.writestr("conversion-metadata.json", json.dumps(metadata, ensure_ascii=False))
 
 
 def write_dxf(output, features, notices, catalog):
@@ -340,14 +357,14 @@ def convert(config):
         if not target_crs.equals(coordinate_system('EPSG:4326')):
             notices.append('PROJECTED_GEOJSON_LEGACY_CRS')
     elif target_format == 'shapefile':
-        write_shape(output, converted, target_crs, scratch, notices)
+        write_shape(output, converted, target_crs, scratch, notices, split=config.get('splitShapefile', False))
     elif target_format == 'dxf':
         write_dxf(output, converted, notices, layers)
     else:
         fail('UNSUPPORTED_CONVERSION_FORMAT', 'Unsupported output format.')
     if output.stat().st_size > MAX_OUTPUT:
         fail('CONVERSION_LIMIT_EXCEEDED', 'The output exceeds 500 MiB.')
-    result = {'features':len(converted), 'sourceCRS':source_crs.to_string(), 'targetCRS':target_crs.to_string(), 'warnings':notices}
+    result = {'features':len(converted), 'sourceCRS':source_crs.to_string(), 'targetCRS':target_crs.to_string(), 'warnings':list(dict.fromkeys(notices))}
     (output.parent / 'result.json').write_text(json.dumps(result), encoding='utf-8')
 
 

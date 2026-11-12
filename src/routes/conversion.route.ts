@@ -42,9 +42,10 @@ export const conversionUpload = async (
       limits: {
         files: 1,
         fileSize: MAX_CONVERSION_MB * 1024 * 1024,
-        fields: 3,
+        fields: 4,
         fieldSize: 128,
-        parts: 4,
+        // Busboy emits the limit event when the part count reaches the cap.
+        parts: 6,
       },
     }).single("file");
     receive(req, res, (error) => {

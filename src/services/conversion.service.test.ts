@@ -96,3 +96,17 @@ test("queue processor returns structured failures and cleans artifacts, without 
   });
   await assert.rejects(fs.stat(directory), { code: "ENOENT" });
 });
+
+test("geometry layer splitting is opt-in and restricted to GeoJSON to Shapefile", () => {
+  assert.deepEqual(parseConversionOptions("drawing.geojson", {
+    targetFormat: "shapefile", splitShapefile: "true",
+  }), { inputFormat: "geojson", targetFormat: "shapefile", splitShapefile: true });
+  for (const options of [
+    { targetFormat: "dxf", splitShapefile: "true" },
+    { targetFormat: "shapefile", splitShapefile: ["true"] },
+  ]) {
+    assert.throws(() => parseConversionOptions("drawing.geojson", options), {
+      code: "UNSUPPORTED_CONVERSION_FORMAT",
+    });
+  }
+});
