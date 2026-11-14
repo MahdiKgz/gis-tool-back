@@ -14,6 +14,7 @@ const REPAIR_COUNT_KEYS = [
   "undershootsRepaired",
   "overshootsRepaired",
   "gapsClosed",
+  "neighborVerticesInserted",
   "overlapsHealed",
   "exactDuplicates",
   "sliversRemovedCount",

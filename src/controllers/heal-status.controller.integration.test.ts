@@ -50,6 +50,7 @@ const emptyReport = {
     maxInferredGapWidthMeters: 50,
     maxGapWidthToSharedBoundaryRatio: 0.1,
     minGapSharedBoundaryRatio: 0.5,
+    neighborCoincidenceToleranceMeters: 0.0001,
     lineTopologyToleranceMeters: 0.025,
     maxInferredLineErrorMeters: 100,
     spikeBaseToleranceMeters: 0.025,

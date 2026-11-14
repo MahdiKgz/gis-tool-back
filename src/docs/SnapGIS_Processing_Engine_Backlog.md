@@ -200,7 +200,7 @@
 # Phase 2 --- Advanced Topology
 
 -   [x] Shared Boundary Validation
--   [ ] Neighbor Consistency Validation
+-   [x] Neighbor Consistency Validation. See [Neighbor consistency validation](Neighbor_Consistency_Validation.md).
 -   [ ] Boundary Coincidence Validation
 -   [ ] Polygon Adjacency Validation
 -   [ ] Connectivity Validation

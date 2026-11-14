@@ -37,6 +37,7 @@ import { processInvalidHoles } from "../processing/invalid-holes";
 import { processInvalidRings } from "../processing/invalid-rings";
 import { processLineTopologyWithPolygonContext } from "../processing/line-topology";
 import { processMultipartIntegrity } from "../processing/multipart-integrity";
+import { processNeighborConsistency } from "../processing/neighbor-consistency";
 import {
   buildRingClosureReport,
   detectOpenRings,
@@ -925,6 +926,8 @@ export const gisWorker = new Worker(
     let gapsFound = 0;
     let gapsClosed = 0;
     let gapValidationReport: any = null;
+    let neighborVerticesInserted = 0;
+    let neighborConsistencyValidationReport: any = null;
     let postProcessingRingsOrientationNormalized = 0;
     let postProcessingRingOrientationIssuesUnresolved = 0;
 
@@ -963,6 +966,19 @@ export const gisWorker = new Worker(
       .filter((_, index) => !removedFeatureIndexes.has(index)));
     postProcessingRingsOrientationNormalized = outputOrientation.report.ringsNormalized;
     postProcessingRingOrientationIssuesUnresolved = outputOrientation.report.unresolvedIssues;
+
+    // Synchronize segmentation only after every shape-changing polygon stage.
+    // Inserting a proven collinear vertex leaves the final boundary and area
+    // unchanged while preventing hidden T-nodes in subsequent edits/exports.
+    const neighborConsistencyResult = processNeighborConsistency(
+      processedPolys,
+      {},
+      true,
+    );
+    processedPolys = neighborConsistencyResult.geojson;
+    neighborConsistencyValidationReport = neighborConsistencyResult.report;
+    neighborVerticesInserted =
+      neighborConsistencyValidationReport.verticesInserted;
 
     // Endpoint topology must see polygon boundaries. The former worker path
     // passed only line features even though dry-run used the complete dataset,
@@ -1074,6 +1090,8 @@ export const gisWorker = new Worker(
       gapsFound,
       gapsClosed,
       gapValidationReport,
+      neighborVerticesInserted,
+      neighborConsistencyValidationReport,
       overlapsHealed,
       overlapsCritical,
       overlapErrorLog,

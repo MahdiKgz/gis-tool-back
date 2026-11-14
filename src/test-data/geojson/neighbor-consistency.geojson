@@ -1,0 +1,25 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "west",
+      "snapgisCadLayer": "parcels",
+      "properties": { "layer": "parcels" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[51.4, 35.7], [51.401, 35.7], [51.401, 35.7005], [51.401, 35.701], [51.4, 35.701], [51.4, 35.7]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "east",
+      "snapgisCadLayer": "parcels",
+      "properties": { "layer": "parcels" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[51.401, 35.7], [51.402, 35.7], [51.402, 35.701], [51.401, 35.701], [51.401, 35.7]]]
+      }
+    }
+  ]
+}

@@ -28,7 +28,7 @@ test("returns a clean report for valid geometry without mutating it", () => {
   assert.equal(report.mode, "dry-run");
   assert.equal(report.valid, true);
   assert.equal(report.summary.featuresScanned, 1);
-  assert.equal(report.summary.checksRun, 18);
+  assert.equal(report.summary.checksRun, 19);
   assert.equal(report.summary.issuesFound, 0);
   assert.equal(report.summary.issueGroups, 0);
   assert.deepEqual(report.issueGroups, []);
@@ -150,6 +150,31 @@ test("analyzing a file leaves its source bytes unchanged", async () => {
   assert.deepEqual(fs.readFileSync(fixturePath), before);
 });
 
+test("reports neighbor segmentation mismatches through the integrated dry run", async () => {
+  const fixturePath = path.resolve(
+    "src/test-data/geojson/neighbor-consistency.geojson",
+  );
+  const before = fs.readFileSync(fixturePath);
+  const report = await analyzeGisFile(
+    fixturePath,
+    "neighbor-consistency.geojson",
+    { toleranceMillimeters: 25 },
+  );
+
+  const issue = report.issues.find(
+    (candidate) => candidate.code === "NEIGHBOR_VERTEX_MISMATCH",
+  );
+  assert.ok(issue);
+  assert.equal(issue.check, "neighborConsistency");
+  assert.equal(issue.featureId, "west");
+  assert.equal(issue.relatedFeatureId, "east");
+  assert.equal(issue.disposition, "AutoRepairAvailable");
+  assert.deepEqual(issue.location.coordinatePath, [0, 2]);
+  assert.deepEqual(issue.location.relatedCoordinatePath, [0, 3]);
+  assert.equal(report.checks.neighborConsistency?.valid, false);
+  assert.deepEqual(fs.readFileSync(fixturePath), before);
+});
+
 test("stops safely after the root GeoJSON structure check fails", () => {
   const report = analyzeGeoJson(
     { type: "Polygon", coordinates: [] },
@@ -207,7 +232,7 @@ test("reports self-intersection before its secondary area consequences", () => {
     coordinates: [51.465, 35.705],
   });
   assert.equal(issue.disposition, "AutoRepairAvailable");
-  assert.equal(report.summary.checksRun, 18);
+  assert.equal(report.summary.checksRun, 19);
 });
 
 test("reports gaps, slivers, undershoots, and overshoots in one dry run", async () => {
@@ -272,7 +297,7 @@ test("reports gaps, slivers, undershoots, and overshoots in one dry run", async 
     ),
     [0, 1, 2, 3, 4, 5, 6],
   );
-  assert.equal(report.summary.checksRun, 18);
+  assert.equal(report.summary.checksRun, 19);
   assert.equal(report.appliedOptions.sliverAreaThresholdM2, 0.09);
   assert.equal(report.appliedOptions.gapToleranceMeters, 0.09);
   assert.equal(report.appliedOptions.lineTopologyToleranceMeters, 0.03);
@@ -412,6 +437,6 @@ test("detects every declared cadastral topology scenario at 25 mm", async () => 
     assert.equal(issue.disposition, "AutoRepairAvailable");
   }
   assert.equal(report.checks.overlaps?.valid, false);
-  assert.equal(report.summary.checksRun, 18);
+  assert.equal(report.summary.checksRun, 19);
   assert.deepEqual(fs.readFileSync(fixturePath), before);
 });

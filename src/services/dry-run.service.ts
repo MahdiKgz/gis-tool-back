@@ -16,6 +16,10 @@ import {
   processLineTopology,
 } from "../processing/line-topology";
 import { processMultipartIntegrity } from "../processing/multipart-integrity";
+import {
+  DEFAULT_NEIGHBOR_COINCIDENCE_TOLERANCE_METERS,
+  processNeighborConsistency,
+} from "../processing/neighbor-consistency";
 import { processPolygonOverlaps } from "../processing/overlaps";
 import { processRingClosure } from "../processing/ring-closure";
 import { processRingOrientation } from "../processing/ring-orientation";
@@ -121,6 +125,7 @@ export interface DryRunReport {
     maxInferredGapWidthMeters: number;
     maxGapWidthToSharedBoundaryRatio: number;
     minGapSharedBoundaryRatio: number;
+    neighborCoincidenceToleranceMeters: number;
     lineTopologyToleranceMeters: number;
     maxInferredLineErrorMeters: number;
     spikeBaseToleranceMeters: number;
@@ -313,6 +318,8 @@ export const analyzeGeoJson = (
       maxGapWidthToSharedBoundaryRatio:
         DEFAULT_MAX_GAP_WIDTH_TO_SHARED_BOUNDARY_RATIO,
       minGapSharedBoundaryRatio: DEFAULT_MIN_SHARED_BOUNDARY_RATIO,
+      neighborCoincidenceToleranceMeters:
+        DEFAULT_NEIGHBOR_COINCIDENCE_TOLERANCE_METERS,
       lineTopologyToleranceMeters: toleranceMeters,
       maxInferredLineErrorMeters: DEFAULT_MAX_INFERRED_LINE_ERROR_M,
       spikeBaseToleranceMeters: toleranceMeters,
@@ -412,6 +419,9 @@ export const analyzeGeoJson = (
     polygonRelationshipInput,
     { gapToleranceMeters, minimumGapWidthMeters: toleranceMeters },
   ).report;
+  checks.neighborConsistency = processNeighborConsistency(
+    polygonRelationshipInput,
+  ).report;
 
   return buildReport(geojson, checks, {
     toleranceMillimeters: options.toleranceMillimeters,
@@ -430,6 +440,8 @@ export const analyzeGeoJson = (
     maxGapWidthToSharedBoundaryRatio:
       DEFAULT_MAX_GAP_WIDTH_TO_SHARED_BOUNDARY_RATIO,
     minGapSharedBoundaryRatio: DEFAULT_MIN_SHARED_BOUNDARY_RATIO,
+    neighborCoincidenceToleranceMeters:
+      DEFAULT_NEIGHBOR_COINCIDENCE_TOLERANCE_METERS,
     lineTopologyToleranceMeters: toleranceMeters,
     maxInferredLineErrorMeters: DEFAULT_MAX_INFERRED_LINE_ERROR_M,
     spikeBaseToleranceMeters: toleranceMeters,
